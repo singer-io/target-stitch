@@ -11,5 +11,8 @@ lein uberjar
 ## Use
 
 ```bash
-STITCH_TOKEN=secrettoken STITCH_CLIENT_ID=1 STITCH_NAMESPACE=my_namespace cat sse-encoded-data.out | java -cp target/persist-stitch-standalone.jar com.stitchdata.persist.stitch.core
+› export STITCH_TOKEN=secrettoken 
+› export STITCH_CLIENT_ID=1 
+› export STITCH_NAMESPACE=my_namespace 
+› cat sse-encoded-data.out | java -cp target/persist-stitch-standalone.jar com.stitchdata.persist.stitch.core
 ```
