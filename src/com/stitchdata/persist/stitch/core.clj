@@ -3,12 +3,6 @@
             [com.stitchdata.client.core :as sc])
   (:gen-class))
 
-(def ^:dynamic *current-block*)
-
-(defn stream-name
-  [block-header]
-  (nth (re-find #"==[A-Z]+==for==(.+)" *current-block*) 1))
-
 (defn -main [& args]
   (let [stitch-token (or (System/getenv "STITCH_TOKEN")
                          (throw (ex-info "STITCH_TOKEN not set" {})))
@@ -22,21 +16,16 @@
       (with-open [stitch-client (sc/client {::sc/client-id (Integer/parseInt stitch-client-id)
                                             ::sc/token stitch-token
                                             ::sc/namespace stitch-namespace})]
-        (binding [*current-block* "null"]
-          (doseq [ln (line-seq (java.io.BufferedReader. *in*))]
-            (if (= "=" (subs ln 0 1))
+        (doseq [ln (line-seq (java.io.BufferedReader. *in*))]
+          (let [parsed (parse-string ln)]
+            (condp = (get parsed "type")
 
-              (do
-                (set! *current-block* ln))
+              "RECORDS" (doseq [record (get parsed "records")]
+                          (sc/push stitch-client {::sc/action ::sc/upsert
+                                                  ::sc/sequence (System/currentTimeMillis)
+                                                  ::sc/table-name (get parsed "stream")
+                                                  ::sc/key-names (get parsed "key_fields")
+                                                  ::sc/data record}))
 
-              (let [block-type (subs *current-block* 0 9)]
-                (condp = block-type
-
-                  "==RECORDS" (sc/push stitch-client {::sc/action ::sc/upsert
-                                                      ::sc/sequence (System/currentTimeMillis)
-                                                      ::sc/table-name (stream-name *current-block*)
-                                                      ::sc/key-names ["sha"]
-                                                      ::sc/data (parse-string ln)})
-
-                  "==BOOKMAR"   (binding [*out* *err*]
-                                  (println "Bookmark:" ln)))))))))))
+              "BOOKMARK" (binding [*out* *err*]
+                           (println "Bookmark:" (generate-string (get parsed "value")))))))))))
