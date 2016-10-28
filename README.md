@@ -4,15 +4,14 @@ Persists stitchstream formatted data from stdin to the Stitch Import API
 
 ## Build
 
+Requires Python 3
+
 ```bash
-lein uberjar
+python setup.py install
 ```
 
 ## Use
 
 ```bash
-› export STITCH_TOKEN=secrettoken
-› export STITCH_CLIENT_ID=1
-› export STITCH_NAMESPACE=my_namespace
-› cat encoded-data.out | java -cp target/persist-stitch-standalone.jar com.stitchdata.persist.stitch.core
+› cat encoded-data.out | persist-stitch -T <token> -C <client-id>
 ```
