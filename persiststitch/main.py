@@ -32,7 +32,7 @@ def parse_headers():
     headers = {'version': sys.stdin.readline().strip().lower()}
 
     for line in sys.stdin:
-        if line == '--\n':
+        if line.strip() == '--':
             break
         (k,v) = line.split(':', 1)
         headers[k.strip().lower()] = v.strip().lower()
