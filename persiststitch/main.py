@@ -10,8 +10,6 @@ from dateutil import tz
 from strict_rfc3339 import rfc3339_to_timestamp
 from jsonschema import Draft4Validator, validators
 from stitchclient.client import Client
-from transit.reader import Reader
-from transit.writer import Writer
 
 def parse_headers():
     headers = {'version': sys.stdin.readline().strip().lower()}

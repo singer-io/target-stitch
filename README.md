@@ -2,12 +2,13 @@
 
 Persists stitchstream formatted data from stdin to the Stitch Import API
 
-## Build
+## Install
 
 Requires Python 3
 
 ```bash
-python setup.py install
+› pip install stitchclient
+› python setup.py install
 ```
 
 ## Use
