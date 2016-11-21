@@ -11,6 +11,8 @@ from strict_rfc3339 import rfc3339_to_timestamp
 from jsonschema import Draft4Validator, validators
 from stitchclient.client import Client
 
+schema_cache = {}
+
 def parse_headers():
     headers = {'version': sys.stdin.readline().strip().lower()}
 
@@ -23,18 +25,24 @@ def parse_headers():
     return headers
 
 
-def parse_key_fields(full_record):
-    return [k for (k,v) in full_record['schema']['properties'].items() if 'key' in v and v['key'] == True]
+def parse_key_fields(stream_name):
+    if stream_name in schema_cache:
+        return [k for (k,v) in schema_cache[stream_name]['properties'].items() if 'key' in v and v['key'] == True]
+    else:
+        return []
 
 
 def parse_record(full_record):
+    stream_name = full_record['stream']
+    schema = schema_cache[stream_name] if stream_name in schema_cache else {}
     o = full_record['record']
     v = extend_with_default(Draft4Validator)
-    v(full_record['schema'], format_checker=jsonschema.FormatChecker()).validate(o)
+    v(schema, format_checker=jsonschema.FormatChecker()).validate(o)
     return o
 
 
 def from_jsonline(args):
+    global schema_cache
     last_bookmark = None
     def persist_bookmark(vals):
         if last_bookmark is not None:
@@ -48,7 +56,7 @@ def from_jsonline(args):
             o = json.loads(line)
 
             if o['type'] == 'RECORD':
-                key_fields = parse_key_fields(o)
+                key_fields = parse_key_fields(o['stream'])
                 parsed_record = parse_record(o)
                 stitch.push({'action': 'upsert',
                              'table_name': o['stream'],
@@ -57,6 +65,8 @@ def from_jsonline(args):
                              'data': parsed_record}, last_bookmark)
             elif o['type'] == 'BOOKMARK':
                 last_bookmark = o['value']
+            elif o['type'] == 'SCHEMA':
+                schema_cache[o['stream']] = o['schema']
             else:
                 pass
 
