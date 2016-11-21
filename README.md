@@ -7,8 +7,7 @@ Persists stitchstream formatted data from stdin to the Stitch Import API
 Requires Python 3
 
 ```bash
-› pip install stitchclient
-› python setup.py install
+› pip install persist-stitch
 ```
 
 ## Use

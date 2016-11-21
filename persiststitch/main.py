@@ -119,7 +119,6 @@ if __name__ == '__main__':
                    }
                }
     },'required':['ts', 'max_int', 'max_float']}
-#    print(parse_key_fields({'schema': schema}))
     obj = json.loads('{"ts":"2016-01-01T00:00:00Z", "max_int":9223372036854775807, "max_float": 9223372036854775807.9223372036854775807, "obj":{"nested_date":"2017-01-01T00:00:00Z"}}')
     v = extend_with_default(Draft4Validator)
     v(schema, format_checker=jsonschema.FormatChecker()).validate(obj)
