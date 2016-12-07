@@ -31,7 +31,7 @@ def extend_with_default(validator_class):
 
         for property, subschema in properties.items():
             if "format" in subschema:
-                if subschema['format'] == 'date-time':
+                if subschema['format'] == 'date-time' and property in instance:
                     instance[property] = datetime.fromtimestamp(
                         rfc3339_to_timestamp(instance[property])
                     ).replace(tzinfo=tz.tzutc())
@@ -52,7 +52,7 @@ def parse_headers(raw_headers):
 
 
 def parse_key_fields(stream_name):
-    if stream_name in schema_cache:
+    if stream_name in schema_cache and 'properties' in schema_cache[stream_name]:
         return [k for (k,v) in schema_cache[stream_name]['properties'].items() if 'key' in v and v['key'] == True]
     else:
         return []

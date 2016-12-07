@@ -13,5 +13,12 @@ Requires Python 3
 ## Use
 
 ```bash
-› cat encoded-data.out | persist-stitch -T <token> -C <client-id>
+› STITCH_TOKEN=abcd STITCH_CLIENT_ID=1234 persist-stitch command [arg...]
+```
+
+Anything on the command line after COMMAND is passed as arguments to
+COMMAND. Example:
+
+```bash
+› STITCH_TOKEN=abcd STITCH_CLIENT_ID=1234 persist-stitch python stream_github.py
 ```
