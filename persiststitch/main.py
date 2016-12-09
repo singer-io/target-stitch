@@ -19,7 +19,16 @@ MAX_LINE_SIZE=4*1024*1024 # 4mb limit
 logger = logging.getLogger()
 schema_cache = {}
 last_bookmark = None
-    
+
+def configure_logging(level=logging.DEBUG):
+    global logger
+    logger.setLevel(level)
+    ch = logging.StreamHandler()
+    ch.setLevel(level)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
+
 def extend_with_default(validator_class):
     validate_properties = validator_class.VALIDATORS["properties"]
 
@@ -132,6 +141,7 @@ async def run_subprocess(stitchclient, args):
 
 
 def main(args):
+    configure_logging()
     with Client(
             int(os.environ['STITCH_CLIENT_ID']),
             os.environ['STITCH_TOKEN'],
