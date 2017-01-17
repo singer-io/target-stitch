@@ -1,13 +1,10 @@
 import argparse
-import io
 import logging
 import os
 import sys
 import time
 import json
 import jsonschema
-import asyncio
-import asyncio.subprocess
 
 from datetime import datetime
 from dateutil import tz
@@ -15,10 +12,9 @@ from strict_rfc3339 import rfc3339_to_timestamp
 from jsonschema import Draft4Validator, validators
 from stitchclient.client import Client
 
-MAX_LINE_SIZE=4*1024*1024 # 4mb limit
 logger = logging.getLogger()
 schema_cache = {}
-last_bookmark = None
+last_state = None
 
 def configure_logging(level=logging.DEBUG):
     global logger
@@ -50,6 +46,7 @@ def extend_with_default(validator_class):
     )
 
 
+
 def parse_key_fields(stream_name):
     if stream_name in schema_cache and 'properties' in schema_cache[stream_name]:
         return [k for (k,v) in schema_cache[stream_name]['properties'].items() if 'key' in v and v['key'] == True]
@@ -66,14 +63,14 @@ def parse_record(full_record):
     return o
 
 
-def print_bookmark(vals):
+def push_state(vals):
     logger.info('Persisted {} records to Stitch'.format(len(vals)))
-    if last_bookmark is not None:
-        print(json.dumps(last_bookmark), flush=True)
+    if last_state is not None:
+        print("I would persist this state " + json.dumps(last_state))
 
         
-def from_jsonline(stitchclient, line):
-    global schema_cache, last_bookmark
+def persist_line(stitchclient, line):
+    global schema_cache, last_state
     o = json.loads(line)
     if o['type'] == 'RECORD':
         key_fields = parse_key_fields(o['stream'])
@@ -82,37 +79,13 @@ def from_jsonline(stitchclient, line):
                            'table_name': o['stream'],
                            'key_names': key_fields,
                            'sequence': int(time.time() * 1000),
-                           'data': parsed_record}, last_bookmark)
-    elif o['type'] == 'BOOKMARK':
-        last_bookmark = o['value']
+                           'data': parsed_record}, last_state)
+    elif o['type'] == 'STATE':
+        last_state = o['value']
     elif o['type'] == 'SCHEMA':
         schema_cache[o['stream']] = o['schema']
     else:
         pass
-
-async def run_subprocess(stitchclient, args):
-    create = asyncio.create_subprocess_exec(
-        *args,
-        stdout=asyncio.subprocess.PIPE,
-        limit=MAX_LINE_SIZE
-    )
-    proc = await create
-    logger.info('Subprocess started {}'.format(proc.pid))
-    
-    while True:
-        line = await proc.stdout.readline()
-        line = line.decode('utf-8')
-        if line == '' or line is None:
-            break
-        persist_fn(stitchclient, line)
-            
-    logger.info('Waiting for process {} to complete'.format(proc.pid))
-    await proc.wait()
-
-    return_code = proc.returncode
-    logger.info('Subprocess {} returned code {}'.format(proc.pid, return_code))
-
-    return return_code
 
 
 def main(args):
@@ -120,15 +93,15 @@ def main(args):
     with Client(
             int(os.environ['STITCH_CLIENT_ID']),
             os.environ['STITCH_TOKEN'],
-            callback_function=print_bookmark
+            callback_function=push_state
     ) as stitchclient:
-        event_loop = asyncio.get_event_loop()
-        try:
-            return_code = event_loop.run_until_complete(
-                run_subprocess(stitchclient, args)
-            )
-        finally:
-            event_loop.close()
+        while True:
+            line = proc.stdout.readline()
+            line = line.decode('utf-8')
+            if line == '' or line is None:
+                break
+            persist_line(stitchclient, line)
+
 
             
 if __name__ == '__main__':
