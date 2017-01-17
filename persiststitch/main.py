@@ -50,16 +50,6 @@ def extend_with_default(validator_class):
     )
 
 
-def parse_headers(raw_headers):
-    headers = {'version': raw_headers.pop(0).strip().lower()}
-
-    for line in raw_headers:
-        (k,v) = line.split(':', 1)
-        headers[k.strip().lower()] = v.strip().lower()
-
-    return headers
-
-
 def parse_key_fields(stream_name):
     if stream_name in schema_cache and 'properties' in schema_cache[stream_name]:
         return [k for (k,v) in schema_cache[stream_name]['properties'].items() if 'key' in v and v['key'] == True]
@@ -109,21 +99,6 @@ async def run_subprocess(stitchclient, args):
     proc = await create
     logger.info('Subprocess started {}'.format(proc.pid))
     
-    raw_headers = []
-    
-    while True:
-        line = await proc.stdout.readline() 
-        if line.decode('utf-8').strip() == '--':
-            break
-        raw_headers.append(line.decode('utf-8'))
-
-    headers = parse_headers(raw_headers)
-
-    if headers['content-type'] == 'jsonline':
-        persist_fn = from_jsonline
-    else:
-        raise RuntimeError('Unsupported content-type: {}'.format(headers['content-type']))
-
     while True:
         line = await proc.stdout.readline()
         line = line.decode('utf-8')
