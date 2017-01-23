@@ -44,9 +44,13 @@ def extend_with_default(validator_class):
         for property, subschema in properties.items():
             if "format" in subschema:
                 if subschema['format'] == 'date-time' and property in instance:
-                    instance[property] = datetime.fromtimestamp(
-                        rfc3339_to_timestamp(instance[property])
-                    ).replace(tzinfo=tz.tzutc())
+                    try:
+                        instance[property] = datetime.fromtimestamp(
+                            rfc3339_to_timestamp(instance[property])
+                        ).replace(tzinfo=tz.tzutc())
+                    except Exception as e:
+                        raise Exception('Error parsing property {}, value {}'.format(
+                            property, instance[property]))
 
     return validators.extend(
         validator_class, {"properties" : set_defaults},
@@ -91,12 +95,15 @@ def persist_line(stitchclient, line):
     o = json.loads(line)
     if o['type'] == 'RECORD':
         key_fields = parse_key_fields(o['stream'])
-        parsed_record = parse_record(o)
+        try:
+            parsed_record = parse_record(o)
+        except:
+            raise Exception("Error parsing record {}".format(o))
         row_count += 1
         if state_file is not None and row_count % 100 == 0:
             push_state(None)
         if dry_run:
-            logger.info('Dry Run - Would persist: ' + json.dumps(o))
+            logger.info('Dry Run - Would persist one record')
         else:
             stitchclient.push({'action': 'upsert',
                                'table_name': o['stream'],
@@ -137,8 +144,7 @@ def main():
             callback_function=push_state
     ) as stitchclient:
         input_stream = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
-        while True:
-            line = input_stream.readline()
+        for line in input_stream:
             if line == '' or line is None:
                 break
             persist_line(stitchclient, line)
