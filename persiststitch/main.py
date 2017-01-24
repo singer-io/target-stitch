@@ -119,7 +119,7 @@ just persisted to the gate. These states will often be None.
     for state in states:
         if state is not None:
             logger.debug('Emitting state {}'.format(state))
-            sys.stdout.write("{}\n".format(state))
+            sys.stdout.write("{}\n".format(json.dumps(state)))
             sys.stdout.flush()
             
 
