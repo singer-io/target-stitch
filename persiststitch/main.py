@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import argparse
 import logging
 import os
@@ -13,6 +15,7 @@ from strict_rfc3339 import rfc3339_to_timestamp
 
 from jsonschema import Draft4Validator, validators, FormatChecker
 from stitchclient.client import Client
+
 
 logger = logging.getLogger()
 
@@ -168,7 +171,13 @@ def stitch_client(args):
         if len(missing_fields) > 0:
             raise Exception('Configuration is missing required fields: {}'
                             .format(missing_fields))
-        return Client(client_id, token, callback_function=push_state)
+        if 'stitch_url' in config:
+            return Client(client_id, token,
+                          callback_function=push_state,
+                          stitch_url=config['stitch_url'])
+        else:
+            return Client(client_id, token,
+                          callback_function=push_state)                          
 
 
 def do_sync(args):
