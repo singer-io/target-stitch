@@ -2,6 +2,7 @@
 
 import argparse
 import logging
+import logging.config
 import os
 import copy
 import io
@@ -17,8 +18,8 @@ from jsonschema import Draft4Validator, validators, FormatChecker
 from stitchclient.client import Client
 
 
-logger = logging.getLogger()
-
+logging.config.fileConfig('/etc/stitch/logging.conf')
+logger = logging.getLogger('stitch.persister')
 
 class DryRunClient(object):
     """A client that doesn't actually persist to the Gate.
@@ -46,17 +47,6 @@ class DryRunClient(object):
 
     def __exit__(self, exception_type, exception_value, traceback):
         self.flush()
-
-
-# TODO: Maybe we'll put this in a shared lib
-def configure_logging(level=logging.DEBUG,foo={}):
-    global logger
-    logger.setLevel(level)
-    ch = logging.StreamHandler()
-    ch.setLevel(level)
-    formatter = logging.Formatter('%(levelname)s - %(message)s')
-    ch.setFormatter(formatter)
-    logger.addHandler(ch)
 
 
 def extend_with_default(validator_class):
@@ -110,6 +100,13 @@ def parse_record(full_record, schemas):
         raise Exception("Error parsing record {}".format(full_record))
 
 
+def emit_state(state):
+    if state is not None:
+        line = json.dumps(state)
+        logger.debug('Emitting state {}'.format(line))
+        sys.stdout.write("{}\n".format(line))
+        sys.stdout.flush()
+
 def push_state(states):
     """Called with the list of states associated with the messages that we
 just persisted to the gate. These states will often be None.
@@ -117,10 +114,7 @@ just persisted to the gate. These states will often be None.
     """
     logger.info('Persisted batch of {} records to Stitch'.format(len(states)))
     for state in states:
-        if state is not None:
-            logger.debug('Emitting state {}'.format(state))
-            sys.stdout.write("{}\n".format(json.dumps(state)))
-            sys.stdout.flush()
+        emit_state(state)
             
 
 def persist_lines(stitchclient, lines):
@@ -146,6 +140,7 @@ printing the state to stdout after each batch."""
         else:
             raise Exception("Unknown message type {} in message {}"
                             .format(o['type'], o))
+
     return state
 
 
@@ -185,9 +180,8 @@ def do_sync(args):
     state = None
     with stitch_client(args) as client:
         state = persist_lines(client, input)
-    if state is not None:
-        logger.debug('Emitting final state {}'.format(state))
-        print(state)
+    emit_state(state)
+    logger.debug("Persister exiting normally")
     
 
 def main():
@@ -207,7 +201,6 @@ def main():
                              action='store_true')
     
     args = parser.parse_args()
-    configure_logging()
 
     if 'func' in args:
         args.func(args)
@@ -216,9 +209,6 @@ def main():
         exit(1)
 
     args = parser.parse_args()
-
-    configure_logging()
-
 
 
 if __name__ == '__main__':
