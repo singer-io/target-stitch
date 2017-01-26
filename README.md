@@ -12,13 +12,16 @@ Requires Python 3
 
 ## Use
 
-```bash
-› STITCH_TOKEN=abcd STITCH_CLIENT_ID=1234 persist-stitch command [arg...]
+Create config file:
+
+```json
+{
+  "client_id" : YOUR_STITCH_CLIENT_ID,
+  "token" : YOUR_STITCH_ACCESS_TOKEN
+}
 ```
 
-Anything on the command line after COMMAND is passed as arguments to
-COMMAND. Example:
-
 ```bash
-› STITCH_TOKEN=abcd STITCH_CLIENT_ID=1234 persist-stitch python stream_github.py
+› persist_stitch.py sync --config config.json
 ```
+
