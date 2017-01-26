@@ -12,7 +12,12 @@ Requires Python 3
 
 ## Use
 
-Create config file:
+persist_stitch.py takes two types of input:
+
+1. A config file containing your client id and access token
+2. A stream of stitchstream-formatted data on stdin
+
+Create config file to contain your client id and token:
 
 ```json
 {
@@ -22,6 +27,7 @@ Create config file:
 ```
 
 ```bash
-› persist_stitch.py sync --config config.json
+› some_streamer | persist_stitch.py sync --config config.json
 ```
 
+where `some_streamer` is a program that writes stitchstream-formatted data to stdout.
