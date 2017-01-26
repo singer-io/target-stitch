@@ -109,12 +109,16 @@ def emit_state(state):
 
 def push_state(states):
     """Called with the list of states associated with the messages that we
-just persisted to the gate. These states will often be None.
+just persisted to the gate. These states will often be None. Finds the
+last non-None state and emits it. We only need to emit the last one.
 
     """
     logger.info('Persisted batch of {} records to Stitch'.format(len(states)))
+    last_state = None
     for state in states:
-        emit_state(state)
+        if state is not None:
+            last_state = state
+    emit_state(last_state)
             
 
 def persist_lines(stitchclient, lines):
