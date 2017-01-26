@@ -21,6 +21,7 @@ from stitchclient.client import Client
 logging.config.fileConfig('/etc/stitch/logging.conf')
 logger = logging.getLogger('stitch.persister')
 
+
 class DryRunClient(object):
     """A client that doesn't actually persist to the Gate.
 
@@ -107,6 +108,7 @@ def emit_state(state):
         sys.stdout.write("{}\n".format(line))
         sys.stdout.flush()
 
+
 def push_state(states):
     """Called with the list of states associated with the messages that we
 just persisted to the gate. These states will often be None. Finds the
@@ -119,7 +121,7 @@ last non-None state and emits it. We only need to emit the last one.
         if state is not None:
             last_state = state
     emit_state(last_state)
-            
+
 
 def persist_lines(stitchclient, lines):
     """Takes a client and a stream and persists all the records to the gate,
@@ -166,7 +168,7 @@ def stitch_client(args):
             token = config['token']
         else:
             missing_fields.append('token')
-        
+
         if len(missing_fields) > 0:
             raise Exception('Configuration is missing required fields: {}'
                             .format(missing_fields))
@@ -176,7 +178,7 @@ def stitch_client(args):
                           stitch_url=config['stitch_url'])
         else:
             return Client(client_id, token,
-                          callback_function=push_state)                          
+                          callback_function=push_state)
 
 
 def do_sync(args):
@@ -186,24 +188,25 @@ def do_sync(args):
         state = persist_lines(client, input)
     emit_state(state)
     logger.debug("Persister exiting normally")
-    
+
 
 def main():
 
     parser = argparse.ArgumentParser()
 
     subparsers = parser.add_subparsers()
-    
+
     parser_sync = subparsers.add_parser('sync')
     parser_sync.set_defaults(func=do_sync)
 
     for subparser in [parser_sync]:
-        subparser.add_argument('-c', '--config', help='Config file', required=True)
+        subparser.add_argument(
+            '-c', '--config', help='Config file', required=True)
     parser_sync.add_argument('-n',
                              '--dry-run',
                              help='Dry run - Do not push data to Stitch',
                              action='store_true')
-    
+
     args = parser.parse_args()
 
     if 'func' in args:
