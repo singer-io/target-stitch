@@ -21,8 +21,8 @@ Create config file to contain your client id and token:
 
 ```json
 {
-  "client_id" : YOUR_STITCH_CLIENT_ID,
-  "token" : YOUR_STITCH_ACCESS_TOKEN
+  "client_id" : 1234,
+  "token" : "asdkjqbawsdciobasdpkjnqweobdclakjsdbcakbdsac"
 }
 ```
 
