@@ -16,11 +16,9 @@ from strict_rfc3339 import rfc3339_to_timestamp
 
 from jsonschema import Draft4Validator, validators, FormatChecker
 from stitchclient.client import Client
+import stitchstream
 
-
-logging.config.fileConfig('/etc/stitch/logging.conf')
-logger = logging.getLogger('stitch.persister')
-
+logger = stitchstream.get_logger()
 
 class DryRunClient(object):
     """A client that doesn't actually persist to the Gate.

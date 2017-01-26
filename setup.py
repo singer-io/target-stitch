@@ -10,8 +10,10 @@ setup(name='persist-stitch',
       url='https://github.com/stitchstreams/persist-stitch',
       classifiers=['Programming Language :: Python :: 3 :: Only'],
       py_modules=['persist_stitch'],
-      scripts=['bin/persist-stitch'],
-      install_requires=['stitchclient>=0.4.1', 'jsonschema', 'strict-rfc3339'],
+      install_requires=['stitchclient>=0.4.1',
+                        'jsonschema',
+                        'strict-rfc3339',
+                        'stitchstream-python>=0.4.1'],
       entry_points='''
           [console_scripts]
           persist-stitch=persist_stitch:main
