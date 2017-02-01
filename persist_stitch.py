@@ -178,8 +178,19 @@ def stitch_client(args):
             return Client(client_id, token,
                           callback_function=push_state)
 
+def main():
 
-def do_sync(args):
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument(
+        '-c', '--config', help='Config file', required=True)
+    parser.add_argument('-n',
+                        '--dry-run',
+                        help='Dry run - Do not push data to Stitch',
+                        action='store_true')
+
+    args = parser.parse_args()
+
     input = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
     state = None
     with stitch_client(args) as client:
@@ -187,33 +198,6 @@ def do_sync(args):
     emit_state(state)
     logger.debug("Persister exiting normally")
 
-
-def main():
-
-    parser = argparse.ArgumentParser()
-
-    subparsers = parser.add_subparsers()
-
-    parser_sync = subparsers.add_parser('sync')
-    parser_sync.set_defaults(func=do_sync)
-
-    for subparser in [parser_sync]:
-        subparser.add_argument(
-            '-c', '--config', help='Config file', required=True)
-    parser_sync.add_argument('-n',
-                             '--dry-run',
-                             help='Dry run - Do not push data to Stitch',
-                             action='store_true')
-
-    args = parser.parse_args()
-
-    if 'func' in args:
-        args.func(args)
-    else:
-        parser.print_help()
-        exit(1)
-
-    args = parser.parse_args()
 
 
 if __name__ == '__main__':
