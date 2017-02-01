@@ -31,3 +31,7 @@ Create config file to contain your client id and token:
 ```
 
 where `some_streamer` is a program that writes stitchstream-formatted data to stdout.
+
+---
+
+Copyright &copy; 2017 Stitch
