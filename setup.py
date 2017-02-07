@@ -5,7 +5,7 @@ from setuptools import setup, find_packages
 import os.path
 
 setup(name='persist-stitch',
-      version='0.3.1',
+      version='0.4.0',
       description='A persister for the Stitch API',
       author='Stitch',
       url='https://github.com/stitchstreams/persist-stitch',
