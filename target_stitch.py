@@ -20,6 +20,7 @@ import stitchstream
 
 logger = stitchstream.get_logger()
 
+
 class DryRunClient(object):
     """A client that doesn't actually persist to the Gate.
 
@@ -126,21 +127,27 @@ def persist_lines(stitchclient, lines):
 printing the state to stdout after each batch."""
     state = None
     schemas = {}
+    key_properties = {}
     for line in lines:
         o = json.loads(line)
-        if o['type'] == 'RECORD':
+        t = o['type']
+        stream = o['stream']
+        if t == 'RECORD':
             message = {'action': 'upsert',
-                       'table_name': o['stream'],
-                       'key_names': parse_key_fields(o['stream'], schemas),
+                       'table_name': stream,
+                       'key_names': key_properties[stream],
                        'sequence': int(time.time() * 1000),
                        'data': parse_record(o, schemas)}
             stitchclient.push(message, state)
             state = None
-        elif o['type'] == 'STATE':
+        elif t == 'STATE':
             logger.debug('Setting state to {}'.format(o['value']))
             state = o['value']
-        elif o['type'] == 'SCHEMA':
-            schemas[o['stream']] = o['schema']
+        elif t == 'SCHEMA':
+            schemas[stream] = o['schema']
+            if 'key_properties' not in o:
+                raise Exception("key_properties field is required")
+            key_properties[stream] = o['key_properties']
         else:
             raise Exception("Unknown message type {} in message {}"
                             .format(o['type'], o))
