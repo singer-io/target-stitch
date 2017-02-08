@@ -1,4 +1,4 @@
-# persist-stitch
+# target-stitch
 
 Persists stitchstream formatted data from stdin to the Stitch Import API
 
@@ -7,12 +7,12 @@ Persists stitchstream formatted data from stdin to the Stitch Import API
 Requires Python 3
 
 ```bash
-› pip install persist-stitch
+› pip install target-stitch
 ```
 
 ## Use
 
-persist_stitch.py takes two types of input:
+target-stitch takes two types of input:
 
 1. A config file containing your client id and access token
 2. A stream of stitchstream-formatted data on stdin
@@ -27,10 +27,10 @@ Create config file to contain your client id and token:
 ```
 
 ```bash
-› some_streamer | persist_stitch.py sync --config config.json
+› tap-some-api | target-stitch --config config.json
 ```
 
-where `some_streamer` is a program that writes stitchstream-formatted data to stdout.
+where `tap-some-api` is a program that writes stitchstream-formatted data to stdout.
 
 ---
 
