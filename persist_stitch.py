@@ -196,7 +196,7 @@ def main():
     with stitch_client(args) as client:
         state = persist_lines(client, input)
     emit_state(state)
-    logger.debug("Persister exiting normally")
+    logger.debug("Exiting normally")
 
 
 
