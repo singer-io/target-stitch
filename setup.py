@@ -4,19 +4,19 @@
 from setuptools import setup, find_packages
 import os.path
 
-setup(name='persist-stitch',
+setup(name='target-stitch',
       version='0.4.0',
-      description='A persister for the Stitch API',
+      description='A target for the Stitch API',
       author='Stitch',
-      url='https://github.com/stitchstreams/persist-stitch',
+      url='https://github.com/stitchstreams/target-stitch',
       classifiers=['Programming Language :: Python :: 3 :: Only'],
-      py_modules=['persist_stitch'],
+      py_modules=['target_stitch'],
       install_requires=['stitchclient>=0.4.1',
                         'jsonschema',
                         'strict-rfc3339',
                         'stitchstream-python>=0.4.1'],
       entry_points='''
           [console_scripts]
-          persist-stitch=persist_stitch:main
+          target-stitch=target_stitch:main
       '''
 )
