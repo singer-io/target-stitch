@@ -4,7 +4,7 @@ from setuptools import setup, find_packages
 import os.path
 
 setup(name='target-stitch',
-      version='0.4.0',
+      version='0.5.0',
       description='A target for the Stitch API',
       author='Stitch',
       url='https://github.com/stitchstreams/target-stitch',
