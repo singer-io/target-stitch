@@ -187,9 +187,11 @@ def stitch_client(args):
             raise Exception('Configuration is missing required fields: {}'
                             .format(missing_fields))
         if 'stitch_url' in config:
+            url = config['stitch_url']
+            logger.info("Persisting to Stitch Gate at {}".format(url))
             return Client(client_id, token,
                           callback_function=push_state,
-                          stitch_url=config['stitch_url'])
+                          stitch_url=url)
         else:
             return Client(client_id, token,
                           callback_function=push_state)
