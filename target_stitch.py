@@ -133,11 +133,12 @@ printing the state to stdout after each batch."""
 
         if 'type' not in o:
             raise Exception("Line is missing required key 'type': {}".format(line))
-        if 'stream' not in o:
-            raise Exception("Line is missing required key 'stream': {}".format(line))
         t = o['type']
-        stream = o['stream']
+
         if t == 'RECORD':
+            if 'stream' not in o:
+                raise Exception("Line is missing required key 'stream': {}".format(line))
+            stream = o['stream']
             message = {'action': 'upsert',
                        'table_name': stream,
                        'key_names': key_properties[stream],
@@ -149,6 +150,9 @@ printing the state to stdout after each batch."""
             logger.debug('Setting state to {}'.format(o['value']))
             state = o['value']
         elif t == 'SCHEMA':
+            if 'stream' not in o:
+                raise Exception("Line is missing required key 'stream': {}".format(line))
+            stream = o['stream']
             schemas[stream] = o['schema']
             if 'key_properties' not in o:
                 raise Exception("key_properties field is required")
