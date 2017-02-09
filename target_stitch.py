@@ -130,6 +130,11 @@ printing the state to stdout after each batch."""
     key_properties = {}
     for line in lines:
         o = json.loads(line)
+
+        if 'type' not in o:
+            raise Exception("Line is missing required key 'type': {}".format(line))
+        if 'stream' not in o:
+            raise Exception("Line is missing required key 'stream': {}".format(line))
         t = o['type']
         stream = o['stream']
         if t == 'RECORD':
