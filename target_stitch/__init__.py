@@ -16,9 +16,9 @@ from strict_rfc3339 import rfc3339_to_timestamp
 
 from jsonschema import Draft4Validator, validators, FormatChecker
 from stitchclient.client import Client
-import stitchstream
+import singer
 
-logger = stitchstream.get_logger()
+logger = singer.get_logger()
 
 
 class DryRunClient(object):
@@ -53,16 +53,12 @@ def extend_with_default(validator_class):
     validate_properties = validator_class.VALIDATORS["properties"]
 
     def set_defaults(validator, properties, instance, schema):
-        for error in validate_properties(
-            validator, properties, instance, schema,
-        ):
+        for error in validate_properties(validator, properties, instance, schema):
             yield error
 
         for property, subschema in properties.items():
             if "format" in subschema:
-                if (subschema['format'] == 'date-time' and
-                        property in instance and
-                        instance[property] is not None):
+                if subschema['format'] == 'date-time' and instance.get(property) is not None:
                     try:
                         instance[property] = datetime.fromtimestamp(
                             rfc3339_to_timestamp(instance[property])
@@ -71,14 +67,11 @@ def extend_with_default(validator_class):
                         raise Exception('Error parsing property {}, value {}'
                                         .format(property, instance[property]))
 
-    return validators.extend(
-        validator_class, {"properties": set_defaults},
-    )
+    return validators.extend(validator_class, {"properties": set_defaults})
 
 
 def parse_key_fields(stream_name, schemas):
-    if (stream_name in schemas and
-            'properties' in schemas[stream_name]):
+    if (stream_name in schemas and 'properties' in schemas[stream_name]):
         return [k for (k, v) in schemas[stream_name]['properties'].items()
                 if 'key' in v and v['key'] is True]
     else:
@@ -110,9 +103,8 @@ def emit_state(state):
 
 def push_state(states):
     """Called with the list of states associated with the messages that we
-just persisted to the gate. These states will often be None. Finds the
-last non-None state and emits it. We only need to emit the last one.
-
+    just persisted to the gate. These states will often be None. Finds the
+    last non-None state and emits it. We only need to emit the last one.
     """
     logger.info('Persisted batch of {} records to Stitch'.format(len(states)))
     last_state = None
@@ -124,12 +116,16 @@ last non-None state and emits it. We only need to emit the last one.
 
 def persist_lines(stitchclient, lines):
     """Takes a client and a stream and persists all the records to the gate,
-printing the state to stdout after each batch."""
+    printing the state to stdout after each batch."""
     state = None
     schemas = {}
     key_properties = {}
     for line in lines:
-        o = json.loads(line)
+        try:
+            o = json.loads(line)
+        except json.decoder.JSONDecodeError:
+            logger.error("Unable to parse:\n{}".format(line))
+            raise
 
         if 'type' not in o:
             raise Exception("Line is missing required key 'type': {}".format(line))
@@ -171,6 +167,7 @@ def stitch_client(args):
     else:
         with open(args.config) as input:
             config = json.load(input)
+
         missing_fields = []
 
         if 'client_id' in config:
@@ -183,31 +180,26 @@ def stitch_client(args):
         else:
             missing_fields.append('token')
 
-        if len(missing_fields) > 0:
+        if missing_fields:
             raise Exception('Configuration is missing required fields: {}'
                             .format(missing_fields))
+
         if 'stitch_url' in config:
             url = config['stitch_url']
             logger.info("Persisting to Stitch Gate at {}".format(url))
-            return Client(client_id, token,
-                          callback_function=push_state,
-                          stitch_url=url)
+            return Client(client_id, token, callback_function=push_state, stitch_url=url)
         else:
-            return Client(client_id, token,
-                          callback_function=push_state)
+            return Client(client_id, token, callback_function=push_state)
+
 
 def main():
-
     parser = argparse.ArgumentParser()
-
-    parser.add_argument(
-        '-c', '--config', help='Config file', required=True)
-    parser.add_argument('-n',
-                        '--dry-run',
-                        help='Dry run - Do not push data to Stitch',
-                        action='store_true')
-
+    parser.add_argument('-c', '--config', help='Config file')
+    parser.add_argument('-n', '--dry-run', help='Dry run - Do not push data to Stitch', action='store_true')
     args = parser.parse_args()
+
+    if not args.dry_run and args.config is None:
+        parser.error("config file required if not in dry run mode")
 
     input = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
     state = None
@@ -215,7 +207,6 @@ def main():
         state = persist_lines(client, input)
     emit_state(state)
     logger.debug("Exiting normally")
-
 
 
 if __name__ == '__main__':
