@@ -61,8 +61,8 @@ def extend_with_default(validator_class):
                 if subschema['format'] == 'date-time' and instance.get(property) is not None:
                     try:
                         instance[property] = datetime.fromtimestamp(
-                            rfc3339_to_timestamp(instance[property])
-                        ).replace(tzinfo=tz.tzutc())
+                            rfc3339_to_timestamp(instance[property]),
+                            tz=tz.tzutc())
                     except Exception as e:
                         raise Exception('Error parsing property {}, value {}'
                                         .format(property, instance[property]))
