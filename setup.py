@@ -3,14 +3,14 @@
 from setuptools import setup
 
 setup(name='target-stitch',
-      version='0.6.3',
+      version='0.6.4',
       description='Singer.io target for the Stitch API',
       author='Stitch',
       url='https://singer.io',
       classifiers=['Programming Language :: Python :: 3 :: Only'],
       py_modules=['target_stitch'],
       install_requires=[
-          'stitchclient>=0.4.3',
+          'stitchclient>=0.4.4',
           'jsonschema',
           'strict-rfc3339',
           'singer-python>=0.1.0',
