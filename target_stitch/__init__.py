@@ -82,26 +82,20 @@ def parse_record(stream, record, schemas):
     return o
 
 
-
-def emit_state(state):
-    if state is not None:
-        line = json.dumps(state)
-        logger.debug('Emitting state {}'.format(line))
-        sys.stdout.write("{}\n".format(line))
-        sys.stdout.flush()
-
-
-def push_state(states):
+def emit_last_state(states):
     """Called with the list of states associated with the messages that we
     just persisted to the gate. These states will often be None. Finds the
     last non-None state and emits it. We only need to emit the last one.
     """
     logger.info('Persisted batch of {} records to Stitch'.format(len(states)))
-    last_state = None
-    for state in states:
+
+    for state in reversed(states):
         if state is not None:
-            last_state = state
-    emit_state(last_state)
+            line = json.dumps(state)
+            logger.debug('Emitting state {}'.format(line))
+            sys.stdout.write("{}\n".format(line))
+            sys.stdout.flush()
+            return
 
 
 def persist_lines(stitchclient, lines):
@@ -140,7 +134,7 @@ def persist_lines(stitchclient, lines):
 def stitch_client(args):
     """Returns an instance of StitchClient or DryRunClient"""
     if args.dry_run:
-        return DryRunClient(callback_function=push_state)
+        return DryRunClient(callback_function=emit_last_state)
     else:
         with open(args.config) as input:
             config = json.load(input)
@@ -164,9 +158,9 @@ def stitch_client(args):
         if 'stitch_url' in config:
             url = config['stitch_url']
             logger.info("Persisting to Stitch Gate at {}".format(url))
-            return Client(client_id, token, callback_function=push_state, stitch_url=url)
+            return Client(client_id, token, callback_function=emit_last_state, stitch_url=url)
         else:
-            return Client(client_id, token, callback_function=push_state)
+            return Client(client_id, token, callback_function=emit_last_state)
 
 
 def main():
@@ -182,7 +176,7 @@ def main():
     state = None
     with stitch_client(args) as client:
         state = persist_lines(client, input)
-    emit_state(state)
+    emit_last_state([state])
     logger.debug("Exiting normally")
 
 
