@@ -78,19 +78,17 @@ def parse_key_fields(stream_name, schemas):
         return []
 
 
-def parse_record(full_record, schemas):
-    try:
-        stream_name = full_record['stream']
-        if stream_name in schemas:
-            schema = schemas[stream_name]
-        else:
-            schema = {}
-        o = copy.deepcopy(full_record['record'])
-        v = extend_with_default(Draft4Validator)
-        v(schema, format_checker=FormatChecker()).validate(o)
-        return o
-    except:
-        raise Exception("Error parsing record {}".format(full_record))
+def parse_record(stream, record, schemas):
+
+    if stream in schemas:
+        schema = schemas[stream]
+    else:
+        schema = {}
+    o = copy.deepcopy(record)
+    v = extend_with_default(Draft4Validator)
+    v(schema, format_checker=FormatChecker()).validate(o)
+    return o
+
 
 
 def emit_state(state):
@@ -121,41 +119,28 @@ def persist_lines(stitchclient, lines):
     schemas = {}
     key_properties = {}
     for line in lines:
-        try:
-            o = json.loads(line)
-        except json.decoder.JSONDecodeError:
-            logger.error("Unable to parse:\n{}".format(line))
-            raise
 
-        if 'type' not in o:
-            raise Exception("Line is missing required key 'type': {}".format(line))
-        t = o['type']
+        message = singer.parse_message(line)
 
-        if t == 'RECORD':
-            if 'stream' not in o:
-                raise Exception("Line is missing required key 'stream': {}".format(line))
-            stream = o['stream']
-            message = {'action': 'upsert',
-                       'table_name': stream,
-                       'key_names': key_properties[stream],
-                       'sequence': int(time.time() * 1000),
-                       'data': parse_record(o, schemas)}
-            stitchclient.push(message, state)
+        if isinstance(message, singer.RecordMessage):
+            stitch_message = {
+                'action': 'upsert',
+                'table_name': message.stream,
+                'key_names': key_properties[message.stream],
+                'sequence': int(time.time() * 1000),
+                'data': parse_record(message.stream, message.record, schemas)}
+            stitchclient.push(stitch_message, state)
             state = None
-        elif t == 'STATE':
-            logger.debug('Setting state to {}'.format(o['value']))
-            state = o['value']
-        elif t == 'SCHEMA':
-            if 'stream' not in o:
-                raise Exception("Line is missing required key 'stream': {}".format(line))
-            stream = o['stream']
-            schemas[stream] = o['schema']
-            if 'key_properties' not in o:
-                raise Exception("key_properties field is required")
-            key_properties[stream] = o['key_properties']
+
+        elif isinstance(message, singer.StateMessage):
+            state = message.value
+
+        elif isinstance(message, singer.SchemaMessage):
+            schemas[message.stream] = message.schema
+            key_properties[message.stream] = message.key_properties
+
         else:
-            raise Exception("Unknown message type {} in message {}"
-                            .format(o['type'], o))
+            raise Exception("Unrecognized message {} parsed from line {}".format(message, line))
 
     return state
 
