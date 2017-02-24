@@ -13,7 +13,7 @@ setup(name='target-stitch',
           'stitchclient>=0.4.4',
           'jsonschema',
           'strict-rfc3339',
-          'singer-python>=0.1.0',
+          'singer-python>=0.2.0',
       ],
       entry_points='''
           [console_scripts]

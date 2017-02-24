@@ -65,7 +65,3 @@ class TestTargetStitch(unittest.TestCase):
         outputs = persist_all(inputs)
         self.assertEqual(len(outputs), 1)
         self.assertEqual(outputs[0]['key_names'], ['id'])
-
-        
-            
-        
