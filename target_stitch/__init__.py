@@ -70,14 +70,6 @@ def extend_with_default(validator_class):
     return validators.extend(validator_class, {"properties": set_defaults})
 
 
-def parse_key_fields(stream_name, schemas):
-    if (stream_name in schemas and 'properties' in schemas[stream_name]):
-        return [k for (k, v) in schemas[stream_name]['properties'].items()
-                if 'key' in v and v['key'] is True]
-    else:
-        return []
-
-
 def parse_record(stream, record, schemas):
 
     if stream in schemas:
