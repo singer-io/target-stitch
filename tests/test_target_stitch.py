@@ -5,8 +5,8 @@ import json
 
 class DummyClient(target_stitch.DryRunClient):
 
-    def __init__(self, callback_function):
-        super().__init__(callback_function)
+    def __init__(self):
+        super().__init__()
         self.messages = []
 
     def push(self, message, callback_arg=None):
@@ -19,7 +19,7 @@ def message_lines(messages):
     
         
 def persist_all(recs):
-    with DummyClient(lambda x: x) as client:
+    with DummyClient() as client:
         target_stitch.persist_lines(client, message_lines(recs))
         return client.messages
         

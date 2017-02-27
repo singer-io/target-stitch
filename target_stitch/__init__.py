@@ -27,13 +27,12 @@ class DryRunClient(object):
     Useful for testing.
     """
 
-    def __init__(self, callback_function):
-        self.callback_function = callback_function
+    def __init__(self):
         self.pending_callback_args = []
 
     def flush(self):
         logger.info("---- DRY RUN: NOTHING IS BEING PERSISTED TO STITCH ----")
-        self.callback_function(self.pending_callback_args)
+        emit_last_state(self.pending_callback_args)
         self.pending_callback_args = []
 
     def push(self, message, callback_arg=None):
@@ -133,7 +132,7 @@ def persist_lines(stitchclient, lines):
 def stitch_client(args):
     """Returns an instance of StitchClient or DryRunClient"""
     if args.dry_run:
-        return DryRunClient(callback_function=emit_last_state)
+        return DryRunClient()
     else:
         with open(args.config) as input:
             config = json.load(input)
