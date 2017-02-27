@@ -71,7 +71,6 @@ def extend_with_default(validator_class):
 
 
 def parse_record(stream, record, schemas):
-
     if stream in schemas:
         schema = schemas[stream]
     else:
