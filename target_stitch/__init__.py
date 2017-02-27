@@ -127,7 +127,7 @@ def persist_lines(stitchclient, lines):
         else:
             raise Exception("Unrecognized message {} parsed from line {}".format(message, line))
 
-    return state
+    emit_last_state([state])
 
 
 def stitch_client(args):
@@ -171,11 +171,11 @@ def main():
     if not args.dry_run and args.config is None:
         parser.error("config file required if not in dry run mode")
 
-    input = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
-    state = None
     with stitch_client(args) as client:
-        state = persist_lines(client, input)
-    emit_last_state([state])
+        persist_lines(
+            client,
+            lines=io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8'))
+
     logger.debug("Exiting normally")
 
 
