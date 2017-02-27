@@ -19,7 +19,7 @@ from stitchclient.client import Client
 import singer
 
 logger = singer.get_logger()
-
+state_out = sys.stdout
 
 class DryRunClient(object):
     """A client that doesn't actually persist to the Gate.
@@ -27,8 +27,9 @@ class DryRunClient(object):
     Useful for testing.
     """
 
-    def __init__(self):
+    def __init__(self, buffer_size=100):
         self.pending_callback_args = []
+        self.buffer_size = buffer_size
 
     def flush(self):
         logger.info("---- DRY RUN: NOTHING IS BEING PERSISTED TO STITCH ----")

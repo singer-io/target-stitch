@@ -5,8 +5,8 @@ import json
 
 class DummyClient(target_stitch.DryRunClient):
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, buffer_size=100):
+        super().__init__(buffer_size=buffer_size)
         self.messages = []
 
     def push(self, message, callback_arg=None):
@@ -27,14 +27,17 @@ def persist_all(recs):
 class TestTargetStitch(unittest.TestCase):
     
     def test_persist_lines_fails_without_key_properties(self):
-        with self.assertRaises(Exception):
-            messages = persist_all([
-                {"type": "SCHEMA",
-                 "stream": "users",
-                 "schema": {
-                     "properties": {
-                         "id": {"type": "integer"},
-                         "name": {"type": "string"}}}}])
+        recs = [
+            {"type": "SCHEMA",
+             "stream": "users",
+             "schema": {
+                 "properties": {
+                     "id": {"type": "integer"},
+                     "name": {"type": "string"}}}}]
+        
+        with DummyClient() as client:
+            with self.assertRaises(Exception):            
+                target_stitch.persist_lines(client, message_lines(recs))
 
     def test_persist_lines_sets_key_names(self):
         inputs = [
@@ -48,16 +51,29 @@ class TestTargetStitch(unittest.TestCase):
             {"type": "RECORD",
              "stream": "users",
              "record": {"id": 1, "name": "mike"}}]
-        
-        outputs = persist_all(inputs)
-        self.assertEqual(len(outputs), 1)
-        self.assertEqual(outputs[0]['key_names'], ['id'])
+
+        with DummyClient() as client:
+            target_stitch.persist_lines(client, message_lines(inputs))
+            self.assertEqual(len(client.messages), 1)
+            self.assertEqual(client.messages[0]['key_names'], ['id'])
 
     def test_persist_lines_emits_state_before_failure(self):
-        lines = '''
-{"type": "RECORD", "record": {"name": "foo"}}
-{"type": "RECORD", "record": {"name": "bar"}}
-{"type": "STATE", "value": {"seq": 1}}
-boom
-'''
+        schema = {"type": "SCHEMA",
+                  "stream": "foo",
+                  "key_properties": ["i"],
+                  "schema": {"properties": {"i": {"type": "integer"}}}
+        }
+        def state(i):
+            return {"type": "STATE", "value": i}
+        def record(i):
+            return {"type": "RECORD", "stream": "foo", "record": {"i": i}}
+        inputs = [
+            schema if i == 0 else
+            state(i) if i % 2 == 0 else
+            record(i) for i in range(10)]
         
+        with DummyClient() as client:
+            target_stitch.persist_lines(client, message_lines(inputs))
+            self.assertEqual(
+                [1, 3, 5, 7, 9],
+                [m['data']['i'] for m in client.messages])
