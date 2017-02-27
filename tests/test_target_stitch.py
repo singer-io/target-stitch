@@ -2,31 +2,16 @@ import unittest
 import target_stitch
 import json
 
-class DummyClient(object):
 
-    def __init__(self, callback_function, buffer_size=100):
-        self.callback_function = callback_function
-        self.callback_args = []
-        self.pending_messages = []
-        self.flushed_messages = []
-        self.buffer_size = buffer_size
-        
-    def flush(self):
-        self.flushed_messages += self.pending_messages
-        self.pending_messages = []
-        self.callback_function(self.callback_args)
+class DummyClient(target_stitch.DryRunClient):
+
+    def __init__(self, callback_function):
+        super().__init__(callback_function)
+        self.messages = []
 
     def push(self, message, callback_arg=None):
-        self.callback_args.append(callback_arg)
-        self.pending_messages.append(message)
-        if len(self.pending_messages) % self.buffer_size == 0:
-            self.flush()
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exception_type, exception_value, traceback):
-        self.flush()
+        self.messages.append(message)
+        super().push(message, callback_arg)
 
 
 def message_lines(messages):
@@ -36,7 +21,7 @@ def message_lines(messages):
 def persist_all(recs):
     with DummyClient(lambda x: x) as client:
         target_stitch.persist_lines(client, message_lines(recs))
-        return client.flushed_messages
+        return client.messages
         
         
 class TestTargetStitch(unittest.TestCase):
