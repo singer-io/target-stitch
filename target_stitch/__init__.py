@@ -30,7 +30,7 @@ def write_last_state(states):
             break
     if last_state:
         line = json.dumps(state)
-        logger.info('Emitting state {} to {}'.format(line, sys.stdout))
+        logger.debug('Emitting state {}'.format(line))
         sys.stdout.write("{}\n".format(line))
         sys.stdout.flush()
 
@@ -155,7 +155,7 @@ def stitch_client(args):
 
         if 'stitch_url' in config:
             url = config['stitch_url']
-            logger.info("Persisting to Stitch Gate at {}".format(url))
+            logger.debug("Persisting to Stitch Gate at {}".format(url))
             return Client(client_id, token, callback_function=write_last_state, stitch_url=url)
         else:
             return Client(client_id, token, callback_function=write_last_state)
@@ -173,7 +173,7 @@ def main():
     with stitch_client(args) as client:
         state = persist_lines(client, input)
     write_last_state([state])
-    logger.debug("Exiting normally")
+    logger.info("Exiting normally")
 
 
 if __name__ == '__main__':
