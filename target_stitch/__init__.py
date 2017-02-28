@@ -21,25 +21,40 @@ import singer
 logger = singer.get_logger()
 
 
+def write_last_state(states):
+    logger.info('Persisted batch of {} records to Stitch'.format(len(states)))
+    last_state = None
+    for state in reversed(states):
+        if state is not None:
+            last_state = state
+            break
+    if last_state:
+        line = json.dumps(state)
+        logger.info('Emitting state {} to {}'.format(line, sys.stdout))
+        sys.stdout.write("{}\n".format(line))
+        sys.stdout.flush()
+
+
 class DryRunClient(object):
     """A client that doesn't actually persist to the Gate.
 
     Useful for testing.
     """
 
-    def __init__(self, callback_function):
-        self.callback_function = callback_function
+    def __init__(self, buffer_size=100):
         self.pending_callback_args = []
+        self.buffer_size = buffer_size
+
 
     def flush(self):
         logger.info("---- DRY RUN: NOTHING IS BEING PERSISTED TO STITCH ----")
-        self.callback_function(self.pending_callback_args)
+        write_last_state(self.pending_callback_args)
         self.pending_callback_args = []
 
     def push(self, message, callback_arg=None):
         self.pending_callback_args.append(callback_arg)
 
-        if len(self.pending_callback_args) % 100 == 0:
+        if len(self.pending_callback_args) % self.buffer_size == 0:
             self.flush()
 
     def __enter__(self):
@@ -71,7 +86,6 @@ def extend_with_default(validator_class):
 
 
 def parse_record(stream, record, schemas):
-
     if stream in schemas:
         schema = schemas[stream]
     else:
@@ -80,28 +94,6 @@ def parse_record(stream, record, schemas):
     v = extend_with_default(Draft4Validator)
     v(schema, format_checker=FormatChecker()).validate(o)
     return o
-
-
-
-def emit_state(state):
-    if state is not None:
-        line = json.dumps(state)
-        logger.debug('Emitting state {}'.format(line))
-        sys.stdout.write("{}\n".format(line))
-        sys.stdout.flush()
-
-
-def push_state(states):
-    """Called with the list of states associated with the messages that we
-    just persisted to the gate. These states will often be None. Finds the
-    last non-None state and emits it. We only need to emit the last one.
-    """
-    logger.info('Persisted batch of {} records to Stitch'.format(len(states)))
-    last_state = None
-    for state in states:
-        if state is not None:
-            last_state = state
-    emit_state(last_state)
 
 
 def persist_lines(stitchclient, lines):
@@ -140,7 +132,7 @@ def persist_lines(stitchclient, lines):
 def stitch_client(args):
     """Returns an instance of StitchClient or DryRunClient"""
     if args.dry_run:
-        return DryRunClient(callback_function=push_state)
+        return DryRunClient()
     else:
         with open(args.config) as input:
             config = json.load(input)
@@ -164,9 +156,9 @@ def stitch_client(args):
         if 'stitch_url' in config:
             url = config['stitch_url']
             logger.info("Persisting to Stitch Gate at {}".format(url))
-            return Client(client_id, token, callback_function=push_state, stitch_url=url)
+            return Client(client_id, token, callback_function=write_last_state, stitch_url=url)
         else:
-            return Client(client_id, token, callback_function=push_state)
+            return Client(client_id, token, callback_function=write_last_state)
 
 
 def main():
@@ -177,12 +169,10 @@ def main():
 
     if not args.dry_run and args.config is None:
         parser.error("config file required if not in dry run mode")
-
     input = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
-    state = None
     with stitch_client(args) as client:
         state = persist_lines(client, input)
-    emit_state(state)
+    write_last_state([state])
     logger.debug("Exiting normally")
 
 
