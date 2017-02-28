@@ -10,10 +10,11 @@ setup(name='target-stitch',
       classifiers=['Programming Language :: Python :: 3 :: Only'],
       py_modules=['target_stitch'],
       install_requires=[
-          'stitchclient>=0.4.4',
           'jsonschema',
-          'strict-rfc3339',
+          'mock==2.0.0',
           'singer-python>=0.2.1',
+          'stitchclient>=0.4.4',
+          'strict-rfc3339',
       ],
       entry_points='''
           [console_scripts]
