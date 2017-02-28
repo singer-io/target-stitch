@@ -5,6 +5,7 @@ import io
 import mock
 import sys
 import datetime
+import jsonschema
 
 class DummyClient(target_stitch.DryRunClient):
 
@@ -72,7 +73,7 @@ class TestTargetStitch(unittest.TestCase):
             self.assertEqual(len(client.messages), 1)
             self.assertEqual(client.messages[0]['key_names'], ['id'])
 
-    def test_persist_lines_validates_date_time(self):
+    def test_persist_lines_converts_date_time(self):
         inputs = [
             {"type": "SCHEMA",
              "stream": "users",
@@ -89,6 +90,25 @@ class TestTargetStitch(unittest.TestCase):
             target_stitch.persist_lines(client, message_lines(inputs))
             dt = client.messages[0]['data']['t']
             self.assertEqual(datetime.datetime, type(dt))
+
+    def test_persist_lines_fails_if_doesnt_fit_schema(self):
+        inputs = [
+            {"type": "SCHEMA",
+             "stream": "users",
+             "key_properties": ["id"],
+             "schema": {
+                 "properties": {
+                     "id": {"type": "integer"},
+                     "t": {"type": "string", "format": "date-time"}}}},
+            {"type": "RECORD",
+             "stream": "users",
+             "record": {"id": 1, "t": "foobar"}}]
+
+
+        with DummyClient() as client:
+            with self.assertRaises(jsonschema.exceptions.ValidationError):
+                target_stitch.persist_lines(client, message_lines(inputs))
+
 
     def test_persist_last_state_when_stream_ends_with_record(self):
 
