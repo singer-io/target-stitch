@@ -1,6 +1,6 @@
 # target-stitch
 
-Persists stitchstream formatted data from stdin to the Stitch Import API
+Reads [Singer](https://singer.io) formatted data from stdin and persists it to the Stitch Import API.
 
 ## Install
 
@@ -14,10 +14,10 @@ Requires Python 3
 
 target-stitch takes two types of input:
 
-1. A config file containing your client id and access token
-2. A stream of stitchstream-formatted data on stdin
+1. A config file containing your Stitch client id and access token
+2. A stream of Singer-formatted data on stdin
 
-Create config file to contain your client id and token:
+Create config file to contain your Stitch client id and token:
 
 ```json
 {
@@ -30,7 +30,7 @@ Create config file to contain your client id and token:
 › tap-some-api | target-stitch --config config.json
 ```
 
-where `tap-some-api` is a program that writes stitchstream-formatted data to stdout.
+where `tap-some-api` is [Singer Tap](https://singer.io).
 
 ---
 
