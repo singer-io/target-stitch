@@ -19,7 +19,7 @@ from stitchclient.client import Client
 import singer
 
 logger = singer.get_logger()
-
+os.environ['TZ'] = 'UTC' # ignore OS default, always work from UTC
 
 def write_last_state(states):
     logger.info('Persisted batch of {} records to Stitch'.format(len(states)))
