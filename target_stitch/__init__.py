@@ -80,7 +80,7 @@ def extend_with_default(validator_class):
             if "format" in subschema:
                 if subschema['format'] == 'date-time' and instance.get(property) is not None:
                     try:
-                        instance[property] = datetime.fromtimestamp(
+                        instance[property] = datetime.utcfromtimestamp(
                             rfc3339_to_timestamp(instance[property])
                         ).replace(tzinfo=tz.tzutc())
                     except Exception as e:
