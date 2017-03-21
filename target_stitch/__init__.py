@@ -9,6 +9,11 @@ import io
 import sys
 import time
 import json
+import threading
+import http.client
+import urllib
+import pkg_resources
+
 from datetime import datetime
 from dateutil import tz
 
@@ -137,6 +142,12 @@ def stitch_client(args):
         with open(args.config) as input:
             config = json.load(input)
 
+        if not config.get('disable_collection', False):
+            logger.info('Sending version information to stitchdata.com. ' +
+                        'To disable sending anonymous usage data, set ' +
+                        'the config parameter "disable_collection" to true')
+            threading.Thread(target=collect).start()
+
         missing_fields = []
 
         if 'client_id' in config:
@@ -160,6 +171,25 @@ def stitch_client(args):
         else:
             return Client(client_id, token, callback_function=write_last_state)
 
+        
+def collect():
+    try:
+        version = pkg_resources.get_distribution('target-stitch').version
+        conn = http.client.HTTPSConnection('collector.stitchdata.com', timeout=10)
+        conn.connect()
+        params = {
+            'e': 'se',
+            'aid': 'singer',
+            'se_ca': 'target-stitch',
+            'se_ac': 'open',
+            'se_la': version,
+        }
+        conn.request('GET', '/i?' + urllib.parse.urlencode(params))
+        response = conn.getresponse()
+        conn.close()
+    except:
+        logger.debug('Collection request failed')
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -169,6 +199,7 @@ def main():
 
     if not args.dry_run and args.config is None:
         parser.error("config file required if not in dry run mode")
+
     input = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
     with stitch_client(args) as client:
         state = persist_lines(client, input)
