@@ -19,7 +19,7 @@ from dateutil import tz
 
 from strict_rfc3339 import rfc3339_to_timestamp
 
-from jsonschema import Draft4Validator, validators, FormatChecker
+from jsonschema import ValidationError, Draft4Validator, validators, FormatChecker
 from stitchclient.client import Client
 import singer
 
@@ -97,7 +97,10 @@ def parse_record(stream, record, schemas):
         schema = {}
     o = copy.deepcopy(record)
     v = extend_with_default(Draft4Validator)
-    v(schema, format_checker=FormatChecker()).validate(o)
+    try:
+        v(schema, format_checker=FormatChecker()).validate(o)
+    except ValidationError as exc:
+        raise ValueError('Record does not conform to schema. Please see logs for details.') from exc
     return o
 
 
