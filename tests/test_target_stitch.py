@@ -106,7 +106,7 @@ class TestTargetStitch(unittest.TestCase):
 
 
         with DummyClient() as client:
-            with self.assertRaises(jsonschema.exceptions.ValidationError):
+            with self.assertRaises(ValueError):
                 target_stitch.persist_lines(client, message_lines(inputs))
 
 
