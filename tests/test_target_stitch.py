@@ -106,7 +106,7 @@ class TestTargetStitch(unittest.TestCase):
 
 
         with DummyClient() as client:
-            with self.assertRaises(jsonschema.exceptions.ValidationError):
+            with self.assertRaises(ValueError):
                 target_stitch.persist_lines(client, message_lines(inputs))
 
 
@@ -168,3 +168,58 @@ class TestTargetStitch(unittest.TestCase):
                     [m['data']['i'] for m in client.messages])
                 self.assertEqual(10, final_state)
             self.assertEqual('1\n4\n9\n', sys.stdout.getvalue())
+
+    def test_persist_lines_updates_schema(self):
+        inputs = [
+            {"type": "SCHEMA",
+             "stream": "users",
+             "key_properties": ["id"],
+             "schema": {
+                 "properties": {
+                     "id": {"type": "integer"},
+                     "name": {"type": "string"}}}},
+            {"type": "RECORD",
+             "stream": "users",
+             "record": {"id": 1, "name": "mike"}},
+            {"type": "SCHEMA",
+             "stream": "users",
+             "key_properties": ["id"],
+             "schema": {
+                 "properties": {
+                     "id": {"type": "string"},
+                     "name": {"type": "string"}}}},
+            {"type": "RECORD",
+             "stream": "users",
+             "record": {"id": "1", "name": "mike"}}]
+
+        with DummyClient() as client:
+            target_stitch.persist_lines(client, message_lines(inputs))
+            self.assertEqual(len(client.messages), 2)
+            self.assertEqual(client.messages[0]['key_names'], ['id'])
+
+    def test_persist_lines_updates_schema_will_error(self):
+        inputs = [
+            {"type": "SCHEMA",
+             "stream": "users",
+             "key_properties": ["id"],
+             "schema": {
+                 "properties": {
+                     "id": {"type": "integer"},
+                     "name": {"type": "string"}}}},
+            {"type": "RECORD",
+             "stream": "users",
+             "record": {"id": 1, "name": "mike"}},
+            {"type": "SCHEMA",
+             "stream": "users",
+             "key_properties": ["id"],
+             "schema": {
+                 "properties": {
+                     "id": {"type": "string"},
+                     "name": {"type": "string"}}}},
+            {"type": "RECORD",
+             "stream": "users",
+             "record": {"id": 1, "name": "mike"}}]
+
+        with DummyClient() as client:
+            with self.assertRaises(Exception):
+                target_stitch.persist_lines(client, message_lines(inputs))

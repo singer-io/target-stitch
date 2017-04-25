@@ -90,15 +90,15 @@ def extend_with_default(validator_class):
     return validators.extend(validator_class, {"properties": set_defaults})
 
 
-def parse_record(stream, record, schemas):
+def parse_record(stream, record, schemas, validators):
     if stream in schemas:
         schema = schemas[stream]
     else:
         schema = {}
     o = copy.deepcopy(record)
-    v = extend_with_default(Draft4Validator)
+    validator = validators[stream]
     try:
-        v(schema, format_checker=FormatChecker()).validate(o)
+        validator.validate(o)
     except ValidationError as exc:
         raise ValueError('Record does not conform to schema. Please see logs for details.') from exc
     return o
@@ -110,6 +110,7 @@ def persist_lines(stitchclient, lines):
     state = None
     schemas = {}
     key_properties = {}
+    validators = {}
     for line in lines:
 
         message = singer.parse_message(line)
@@ -120,7 +121,7 @@ def persist_lines(stitchclient, lines):
                 'table_name': message.stream,
                 'key_names': key_properties[message.stream],
                 'sequence': int(time.time() * 1000),
-                'data': parse_record(message.stream, message.record, schemas)}
+                'data': parse_record(message.stream, message.record, schemas, validators)}
             stitchclient.push(stitch_message, state)
             state = None
 
@@ -130,6 +131,8 @@ def persist_lines(stitchclient, lines):
         elif isinstance(message, singer.SchemaMessage):
             schemas[message.stream] = message.schema
             key_properties[message.stream] = message.key_properties
+            validator = extend_with_default(Draft4Validator)
+            validators[message.stream] = validator(message.schema, format_checker=FormatChecker())
 
         else:
             raise Exception("Unrecognized message {} parsed from line {}".format(message, line))
