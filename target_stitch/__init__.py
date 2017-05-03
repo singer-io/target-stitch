@@ -20,6 +20,7 @@ from dateutil import tz
 from strict_rfc3339 import rfc3339_to_timestamp
 
 from jsonschema import ValidationError, Draft4Validator, validators, FormatChecker
+from jsonschema.exceptions import SchemaError
 from stitchclient.client import Client
 import singer
 
@@ -132,6 +133,12 @@ def persist_lines(stitchclient, lines):
             schemas[message.stream] = message.schema
             key_properties[message.stream] = message.key_properties
             validator = extend_with_default(Draft4Validator)
+
+            try:
+                validator.check_schema(message.schema)
+            except SchemaError as schema_error:
+                raise Exception("Invalid json schema for stream {}: {}".format(message.stream, message.schema)) from schema_error
+
             validators[message.stream] = validator(message.schema, format_checker=FormatChecker())
 
         else:
