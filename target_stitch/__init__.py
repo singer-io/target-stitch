@@ -132,6 +132,7 @@ def persist_lines(stitchclient, lines):
         elif isinstance(message, singer.SchemaMessage):
             schemas[message.stream] = message.schema
             key_properties[message.stream] = message.key_properties
+            schemas[message.stream]['required'] = key_properties[message.stream]
             validator = extend_with_default(Draft4Validator)
 
             try:

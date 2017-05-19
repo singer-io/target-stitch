@@ -55,6 +55,23 @@ class TestTargetStitch(unittest.TestCase):
             with self.assertRaises(Exception):
                 target_stitch.persist_lines(client, message_lines(recs))
 
+    def test_persist_lines_fails_without_keys(self):
+        inputs = [
+            {"type": "SCHEMA",
+             "stream": "users",
+             "key_properties": ["id"],
+             "schema": {
+                 "properties": {
+                     "id": {"type": "integer"},
+                     "name": {"type": "string"}}}},
+            {"type": "RECORD",
+             "stream": "users",
+             "record": {"name": "Joshua"}}]
+
+        with DummyClient() as client:
+            with self.assertRaises(Exception):
+                target_stitch.persist_lines(client, message_lines(inputs))
+
     def test_persist_lines_sets_key_names(self):
         inputs = [
             {"type": "SCHEMA",
