@@ -114,10 +114,11 @@ def persist_lines(stitchclient, lines):
     validators = {}
     for line in lines:
         message = singer.parse_message(line)
-        if message.stream not in key_properties:
-            raise Exception("Missing schema for {}".format(message.stream))
 
         if isinstance(message, singer.RecordMessage):
+            if message.stream not in key_properties:
+                raise Exception("Missing schema for {}".format(message.stream))
+
             stitch_message = {
                 'action': 'upsert',
                 'table_name': message.stream,
