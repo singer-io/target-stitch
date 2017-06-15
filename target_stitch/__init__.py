@@ -132,7 +132,11 @@ def persist_lines(stitchclient, lines):
         elif isinstance(message, singer.SchemaMessage):
             schemas[message.stream] = message.schema
             key_properties[message.stream] = message.key_properties
-            schemas[message.stream]['required'] = key_properties[message.stream]
+
+            # JSON schema will complain if 'required' is present but
+            # empty, so don't set it if there are no key properties
+            if message.key_properties:
+                schemas[message.stream]['required'] = message.key_properties
             validator = extend_with_default(Draft4Validator)
 
             try:

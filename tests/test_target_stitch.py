@@ -39,6 +39,10 @@ schema = {"type": "SCHEMA",
           "schema": {"properties": {"i": {"type": "integer"}}}
 }
 
+def load_sample_lines(filename):
+    with open('tests/' + filename) as fp:
+        return [line for line in fp]
+
 
 class TestTargetStitch(unittest.TestCase):
 
@@ -54,6 +58,14 @@ class TestTargetStitch(unittest.TestCase):
         with DummyClient() as client:
             with self.assertRaises(Exception):
                 target_stitch.persist_lines(client, message_lines(recs))
+
+    def test_persist_lines_works_with_empty_key_properties(self):
+        lines = load_sample_lines('empty_key_properties.json')
+        with DummyClient() as client:
+            target_stitch.persist_lines(client, lines)
+            self.assertEqual(len(client.messages), 1)
+            self.assertEqual(client.messages[0]['key_names'], [])
+
 
     def test_persist_lines_fails_without_keys(self):
         inputs = [
