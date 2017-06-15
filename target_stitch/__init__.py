@@ -113,10 +113,12 @@ def persist_lines(stitchclient, lines):
     key_properties = {}
     validators = {}
     for line in lines:
-
         message = singer.parse_message(line)
 
         if isinstance(message, singer.RecordMessage):
+            if message.stream not in key_properties:
+                raise Exception("Missing schema for {}".format(message.stream))
+
             stitch_message = {
                 'action': 'upsert',
                 'table_name': message.stream,
@@ -185,7 +187,7 @@ def stitch_client(args):
         else:
             return Client(client_id, token, callback_function=write_last_state)
 
-        
+
 def collect():
     try:
         version = pkg_resources.get_distribution('target-stitch').version
