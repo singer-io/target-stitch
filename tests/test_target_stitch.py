@@ -252,3 +252,17 @@ class TestTargetStitch(unittest.TestCase):
         with DummyClient() as client:
             with self.assertRaises(Exception):
                 target_stitch.persist_lines(client, message_lines(inputs))
+
+    def test_versioned_stream(self):
+        lines = load_sample_lines('versioned_stream.json')
+        with DummyClient() as client:
+            target_stitch.persist_lines(client, lines)
+            messages = [(m['action'], m['version']) for m in client.messages]
+            self.assertEqual(messages,
+                             [('upsert', 1),
+                              ('upsert', 1),
+                              ('upsert', 1),
+                              ('switch_view', 1),
+                              ('upsert', 2),
+                              ('upsert', 2),
+                              ('switch_view', 2)])
