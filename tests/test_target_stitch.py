@@ -257,7 +257,7 @@ class TestTargetStitch(unittest.TestCase):
         lines = load_sample_lines('versioned_stream.json')
         with DummyClient() as client:
             target_stitch.persist_lines(client, lines)
-            messages = [(m['action'], m['version']) for m in client.messages]
+            messages = [(m['action'], m['table_version']) for m in client.messages]
             self.assertEqual(messages,
                              [('upsert', 1),
                               ('upsert', 1),

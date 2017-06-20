@@ -127,8 +127,8 @@ def persist_lines(stitchclient, lines):
                 'data': parse_record(message.stream, message.record, schemas, validators)
             }
             if message.version is not None:
-                stitch_message['version'] = message.version
-            
+                stitch_message['table_version'] = message.version
+
             stitchclient.push(stitch_message, state)
             state = None
 
@@ -136,11 +136,12 @@ def persist_lines(stitchclient, lines):
             stitch_message = {
                 'action': 'switch_view',
                 'table_name': message.stream,
-                'version': message.version
+                'table_version': message.version,
+                'sequence': int(time.time() * 1000)
             }
             stitchclient.push(stitch_message, state)
             state = None
-            
+
         elif isinstance(message, singer.StateMessage):
             state = message.value
 
