@@ -13,6 +13,7 @@ import threading
 import http.client
 import urllib
 import pkg_resources
+import decimal
 
 from datetime import datetime
 from dateutil import tz
@@ -91,13 +92,35 @@ def extend_with_default(validator_class):
     return validators.extend(validator_class, {"properties": set_defaults})
 
 
+ExtendedDraft4Validator = extend_with_default(Draft4Validator)
+
+
 def parse_record(stream, record, schemas, validators):
     if stream in schemas:
         schema = schemas[stream]
     else:
         schema = {}
     o = copy.deepcopy(record)
+
+    for field_name in o:
+        field_schema = schema['properties'].get(field_name)
+        if not field_schema or o[field_name] is None:
+            continue
+        multiple_of = field_schema.get('multipleOf')
+        if multiple_of and abs(multiple_of) < 1:
+            original_decimal_precision = decimal.getcontext().prec
+            precision = len(str(multiple_of).split('.')[1])
+            decimal.getcontext().prec = precision
+            o[field_name] = decimal.Decimal(format(o[field_name], '.' + str(precision) + 'f'))
+            # schema validator for `multipleOf` requires both the value under test and the
+            # `multipleOf` value to be of the same type (in this case, Decimal)
+            if type(multiple_of) != decimal.Decimal:
+                schema['properties'][field_name]['multipleOf'] = decimal.Decimal(str(multiple_of))
+                validators[stream] = ExtendedDraft4Validator(schema, format_checker=FormatChecker())
+            decimal.getcontext().prec = original_decimal_precision
+
     validator = validators[stream]
+
     try:
         validator.validate(o)
     except ValidationError as exc:
@@ -153,14 +176,13 @@ def persist_lines(stitchclient, lines):
             # empty, so don't set it if there are no key properties
             if message.key_properties:
                 schemas[message.stream]['required'] = message.key_properties
-            validator = extend_with_default(Draft4Validator)
 
             try:
-                validator.check_schema(message.schema)
+                ExtendedDraft4Validator.check_schema(message.schema)
             except SchemaError as schema_error:
                 raise Exception("Invalid json schema for stream {}: {}".format(message.stream, message.schema)) from schema_error
 
-            validators[message.stream] = validator(message.schema, format_checker=FormatChecker())
+            validators[message.stream] = ExtendedDraft4Validator(message.schema, format_checker=FormatChecker())
 
         else:
             raise Exception("Unrecognized message {} parsed from line {}".format(message, line))

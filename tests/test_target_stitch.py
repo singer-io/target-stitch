@@ -266,3 +266,27 @@ class TestTargetStitch(unittest.TestCase):
                               ('upsert', 2),
                               ('upsert', 2),
                               ('switch_view', 2)])
+
+    def test_decimal_handling(self):
+        inputs = [
+            {"type": "SCHEMA",
+             "stream": "testing",
+             "key_properties": ["a_float", "a_dec"],
+             "schema": {
+                 "properties": {
+                     "a_float": {"type": ["null", "number"]},
+                     "a_dec": {"type": ["null", "number"],
+                               "multipleOf": 0.0001}}}},
+            {"type": "RECORD",
+             "stream": "testing",
+             "record": {"a_float": 4.72, "a_dec": 4.72}},
+            {"type": "RECORD",
+             "stream": "testing",
+             "record": {"a_float": 4.72, "a_dec": None}}]
+
+        with DummyClient() as client:
+            target_stitch.persist_lines(client, message_lines(inputs))
+            self.assertEqual(str(sorted(client.messages[0]['data'].items())),
+                             "[('a_dec', Decimal('4.7200')), ('a_float', 4.72)]")
+            self.assertEqual(str(sorted(client.messages[1]['data'].items())),
+                             "[('a_dec', None), ('a_float', 4.72)]")
