@@ -107,7 +107,7 @@ def parse_record(stream, record, schemas, validators):
         if not field_schema or o[field_name] is None:
             continue
         multiple_of = field_schema.get('multipleOf', None)
-        if multiple_of and multiple_of < 1:
+        if multiple_of and abs(multiple_of) < 1:
             original_decimal_precision = decimal.getcontext().prec
             precision = len(str(multiple_of).split('.')[1])
             decimal.getcontext().prec = precision
