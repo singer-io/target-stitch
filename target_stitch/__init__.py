@@ -103,10 +103,10 @@ def parse_record(stream, record, schemas, validators):
     o = copy.deepcopy(record)
 
     for field_name in o:
-        field_schema = schema['properties'].get(field_name, None)
+        field_schema = schema['properties'].get(field_name)
         if not field_schema or o[field_name] is None:
             continue
-        multiple_of = field_schema.get('multipleOf', None)
+        multiple_of = field_schema.get('multipleOf')
         if multiple_of and abs(multiple_of) < 1:
             original_decimal_precision = decimal.getcontext().prec
             precision = len(str(multiple_of).split('.')[1])
