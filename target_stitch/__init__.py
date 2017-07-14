@@ -51,15 +51,23 @@ class DryRunClient(object):
     def __init__(self, buffer_size=100):
         self.pending_callback_args = []
         self.buffer_size = buffer_size
-
+        self.pending_messages = []
+        self.output_file = '/tmp/stitch-target-out.json'
+        os.remove(self.output_file)
 
     def flush(self):
         logger.info("---- DRY RUN: NOTHING IS BEING PERSISTED TO STITCH ----")
         write_last_state(self.pending_callback_args)
         self.pending_callback_args = []
+        with open(self.output_file, 'a') as outfile:
+            for m in self.pending_messages:
+                logger.info("---- DRY RUN: WOULD HAVE SENT: %s %s", m.get('action'), m.get('table_name'))
+                json.dump(m, outfile)
+            self.pending_messages = []
 
     def push(self, message, callback_arg=None):
         self.pending_callback_args.append(callback_arg)
+        self.pending_messages.append(message)
 
         if len(self.pending_callback_args) % self.buffer_size == 0:
             self.flush()
