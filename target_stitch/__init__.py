@@ -72,7 +72,7 @@ class DryRunClient(object):
         self.pending_callback_args = []
         with open(self.output_file, 'a') as outfile:
             for m in self.pending_messages:
-                logger.info("---- DRY RUN: WOULD HAVE SENT: %s %s %s", m.get('action'), m.get('table_name'), m)
+                logger.info("---- DRY RUN: WOULD HAVE SENT: %s %s %s", m.get('action'), m.get('table_name'))
                 json.dump(m, outfile, cls=DateTimeDumper)
                 outfile.write('\n')
             self.pending_messages = []
