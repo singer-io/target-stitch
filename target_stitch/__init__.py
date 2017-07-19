@@ -42,6 +42,14 @@ def write_last_state(states):
         sys.stdout.flush()
 
 
+class DateTimeDumper(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        else:
+            return super(DateTimeEncoder, self).default(obj)
+
+
 class DryRunClient(object):
     """A client that doesn't actually persist to the Gate.
 
@@ -53,7 +61,10 @@ class DryRunClient(object):
         self.buffer_size = buffer_size
         self.pending_messages = []
         self.output_file = '/tmp/stitch-target-out.json'
-        os.remove(self.output_file)
+        try:
+            os.remove(self.output_file)
+        except OSError:
+            pass
 
     def flush(self):
         logger.info("---- DRY RUN: NOTHING IS BEING PERSISTED TO STITCH ----")
@@ -61,8 +72,9 @@ class DryRunClient(object):
         self.pending_callback_args = []
         with open(self.output_file, 'a') as outfile:
             for m in self.pending_messages:
-                logger.info("---- DRY RUN: WOULD HAVE SENT: %s %s", m.get('action'), m.get('table_name'))
-                json.dump(m, outfile)
+                logger.info("---- DRY RUN: WOULD HAVE SENT: %s %s %s", m.get('action'), m.get('table_name'), m)
+                json.dump(m, outfile, cls=DateTimeDumper)
+                outfile.write('\n')
             self.pending_messages = []
 
     def push(self, message, callback_arg=None):
@@ -132,7 +144,8 @@ def parse_record(stream, record, schemas, validators):
     try:
         validator.validate(o)
     except ValidationError as exc:
-        raise ValueError('Record does not conform to schema. Please see logs for details.') from exc
+        raise ValueError('Record({}) does not conform to schema. Please see logs for details.{}'.format(stream,record)) from exc
+
     return o
 
 
@@ -269,7 +282,6 @@ def main():
         state = persist_lines(client, input)
     write_last_state([state])
     logger.info("Exiting normally")
-
 
 if __name__ == '__main__':
     main()
