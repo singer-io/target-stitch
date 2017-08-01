@@ -42,6 +42,19 @@ def write_last_state(states):
         sys.stdout.flush()
 
 
+class TransitDumper(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        if isinstance(obj, decimal.Decimal):
+            # wanted a simple yield str(o) in the next line,
+            # but that would mean a yield on the line with super(...),
+            # which wouldn't work (see my comment below), so...
+            return str(obj)
+        else:
+            return json.JSONEncoder.default(self, obj)
+
+
 class DryRunClient(object):
     """A client that doesn't actually persist to the Gate.
 
@@ -51,15 +64,27 @@ class DryRunClient(object):
     def __init__(self, buffer_size=100):
         self.pending_callback_args = []
         self.buffer_size = buffer_size
-
+        self.pending_messages = []
+        self.output_file = '/tmp/stitch-target-out.json'
+        try:
+            os.remove(self.output_file)
+        except OSError:
+            pass
 
     def flush(self):
         logger.info("---- DRY RUN: NOTHING IS BEING PERSISTED TO STITCH ----")
         write_last_state(self.pending_callback_args)
         self.pending_callback_args = []
+        with open(self.output_file, 'a') as outfile:
+            for m in self.pending_messages:
+                logger.info("---- DRY RUN: WOULD HAVE SENT: %s %s", m.get('action'), m.get('table_name'))
+                json.dump(m, outfile, cls=TransitDumper)
+                outfile.write('\n')
+            self.pending_messages = []
 
     def push(self, message, callback_arg=None):
         self.pending_callback_args.append(callback_arg)
+        self.pending_messages.append(message)
 
         if len(self.pending_callback_args) % self.buffer_size == 0:
             self.flush()
@@ -124,7 +149,8 @@ def parse_record(stream, record, schemas, validators):
     try:
         validator.validate(o)
     except ValidationError as exc:
-        raise ValueError('Record does not conform to schema. Please see logs for details.') from exc
+        raise ValueError('Record({}) does not conform to schema. Please see logs for details.{}'.format(stream,record)) from exc
+
     return o
 
 
@@ -261,7 +287,6 @@ def main():
         state = persist_lines(client, input)
     write_last_state([state])
     logger.info("Exiting normally")
-
 
 if __name__ == '__main__':
     main()
