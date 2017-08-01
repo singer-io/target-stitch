@@ -42,12 +42,17 @@ def write_last_state(states):
         sys.stdout.flush()
 
 
-class DateTimeDumper(json.JSONEncoder):
+class TransitDumper(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, datetime):
             return obj.isoformat()
+        if isinstance(obj, decimal.Decimal):
+            # wanted a simple yield str(o) in the next line,
+            # but that would mean a yield on the line with super(...),
+            # which wouldn't work (see my comment below), so...
+            return str(obj)
         else:
-            return super(DateTimeEncoder, self).default(obj)
+            return json.JSONEncoder.default(self, obj)
 
 
 class DryRunClient(object):
@@ -73,7 +78,7 @@ class DryRunClient(object):
         with open(self.output_file, 'a') as outfile:
             for m in self.pending_messages:
                 logger.info("---- DRY RUN: WOULD HAVE SENT: %s %s", m.get('action'), m.get('table_name'))
-                json.dump(m, outfile, cls=DateTimeDumper)
+                json.dump(m, outfile, cls=TransitDumper)
                 outfile.write('\n')
             self.pending_messages = []
 
