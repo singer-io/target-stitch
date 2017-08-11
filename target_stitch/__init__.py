@@ -113,6 +113,21 @@ def extend_with_default(validator_class):
                     except Exception as e:
                         raise Exception('Error parsing property {}, value {}'
                                         .format(property, instance[property]))
+            if "multipleOf" in subschema and instance.get(property) is not None:
+                multiple_of = decimal.Decimal(str(subschema.get('multipleOf')))
+                logger.info("here is multiple of: %s", multiple_of)
+                logger.info("properties: %s", properties)
+                logger.info("instance: %s", instance)
+#                logger.info("schema: %s", schema)
+                if multiple_of and abs(multiple_of) < 1:
+                    # schema validator for `multipleOf` requires both the value under test and the
+                    # `multipleOf` value to be of the same type (in this case, Decimal)
+                    precision = len(str(multiple_of).split('.')[1])
+                    instance[property] = decimal.Decimal(format(instance[property], '.' + str(precision) + 'f'))
+#                    subschema['multipleOf'] = multiple_of
+                    logger.info("properties: %s", properties)
+                    logger.info("instance: %s", instance)
+
 
     return validators.extend(validator_class, {"properties": set_defaults})
 
@@ -127,22 +142,11 @@ def parse_record(stream, record, schemas, validators):
         schema = {}
     o = copy.deepcopy(record)
 
+    # we don't need this?
     for field_name in o:
         field_schema = schema['properties'].get(field_name)
         if not field_schema or o[field_name] is None:
             continue
-        multiple_of = field_schema.get('multipleOf')
-        if multiple_of and abs(multiple_of) < 1:
-            original_decimal_precision = decimal.getcontext().prec
-            precision = len(str(multiple_of).split('.')[1])
-            decimal.getcontext().prec = precision
-            o[field_name] = decimal.Decimal(format(o[field_name], '.' + str(precision) + 'f'))
-            # schema validator for `multipleOf` requires both the value under test and the
-            # `multipleOf` value to be of the same type (in this case, Decimal)
-            if type(multiple_of) != decimal.Decimal:
-                schema['properties'][field_name]['multipleOf'] = decimal.Decimal(str(multiple_of))
-                validators[stream] = ExtendedDraft4Validator(schema, format_checker=FormatChecker())
-            decimal.getcontext().prec = original_decimal_precision
 
     validator = validators[stream]
 
