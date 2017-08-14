@@ -14,6 +14,7 @@ import http.client
 import urllib
 import pkg_resources
 import decimal
+from decimal import Decimal
 
 from datetime import datetime
 from dateutil import tz
@@ -27,6 +28,27 @@ import singer
 
 logger = singer.get_logger()
 
+
+def float_to_decimal(x):
+    return Decimal(str(x))
+
+
+class SchemaKey:
+    multipleOf = 'multipleOf'
+    properties = 'properties'
+    items = 'items'
+
+def ensure_multipleof_is_decimal(schema):
+
+    if SchemaKey.multipleOf in schema:
+        schema[SchemaKey.multipleOf] = float_to_decimal(schema[SchemaKey.multipleOf])
+
+    if SchemaKey.properties in schema:
+        for k, v in schema[SchemaKey.properties]:
+            ensure_multipleof_is_decimal(v)
+
+    if SchemaKey.items in schema:
+        ensure_multipleof_is_decimal(schema[SchemaKey.items])
 
 def write_last_state(states):
     logger.info('Persisted batch of {} records to Stitch'.format(len(states)))
@@ -145,7 +167,6 @@ def parse_record(stream, record, schemas, validators):
             decimal.getcontext().prec = original_decimal_precision
 
     validator = validators[stream]
-
     try:
         validator.validate(o)
     except ValidationError as exc:
