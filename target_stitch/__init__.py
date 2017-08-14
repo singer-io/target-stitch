@@ -50,10 +50,13 @@ def ensure_multipleof_is_decimal(schema):
 
     if SchemaKey.items in schema:
         ensure_multipleof_is_decimal(schema[SchemaKey.items])
-
+    return schema
 
 def convert_floats_to_decimals(schema, data):
 
+    if schema is None:
+        return data
+    
     if SchemaKey.properties in schema and isinstance(data, dict):
         for key, subschema in schema[SchemaKey.properties].items():
             if key in data:
@@ -169,32 +172,17 @@ def parse_record(stream, record, schemas, validators):
         schema = schemas[stream]
     else:
         schema = {}
-    o = copy.deepcopy(record)
 
-    for field_name in o:
-        field_schema = schema['properties'].get(field_name)
-        if not field_schema or o[field_name] is None:
-            continue
-        multiple_of = field_schema.get('multipleOf')
-        if multiple_of and abs(multiple_of) < 1:
-            original_decimal_precision = decimal.getcontext().prec
-            precision = len(str(multiple_of).split('.')[1])
-            decimal.getcontext().prec = precision
-            o[field_name] = decimal.Decimal(str(format(o[field_name], '.' + str(precision) + 'f')))
-            # schema validator for `multipleOf` requires both the value under test and the
-            # `multipleOf` value to be of the same type (in this case, Decimal)
-            if type(multiple_of) != decimal.Decimal:
-                schema['properties'][field_name]['multipleOf'] = decimal.Decimal(str(multiple_of))
-                validators[stream] = ExtendedDraft4Validator(schema, format_checker=FormatChecker())
-            decimal.getcontext().prec = original_decimal_precision
-
+    record = convert_floats_to_decimals(schema, record)
+    
     validator = validators[stream]
+    
     try:
-        validator.validate(o)
+        validator.validate(record)
     except ValidationError as exc:
         raise ValueError('Record({}) does not conform to schema. Please see logs for details.{}'.format(stream,record)) from exc
 
-    return o
+    return record
 
 
 def persist_lines(stitchclient, lines):
@@ -238,7 +226,7 @@ def persist_lines(stitchclient, lines):
             state = message.value
 
         elif isinstance(message, singer.SchemaMessage):
-            schemas[message.stream] = message.schema
+            schemas[message.stream] = ensure_multipleof_is_decimal(message.schema)
             key_properties[message.stream] = message.key_properties
 
             # JSON schema will complain if 'required' is present but
