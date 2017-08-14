@@ -357,3 +357,38 @@ class TestEnsureMultipleOfIsDecimal(unittest.TestCase):
             schema,
             {'multipleOf': Decimal('0.01')})
         
+    def test_recursive_properties(self):
+        schema = {
+            'properties': {
+                'child': {
+                    'multipleOf': 0.01
+                }
+            }
+        }
+        target_stitch.ensure_multipleof_is_decimal(schema)        
+        self.assertEqual(
+            schema,
+            {
+                'properties': {
+                    'child': {
+                        'multipleOf': Decimal('0.01')
+                    }
+                }
+            }
+        )
+        
+    def test_recursive_properties(self):
+        schema = {
+            'items': {
+                'multipleOf': 0.01
+            }
+        }
+        target_stitch.ensure_multipleof_is_decimal(schema)        
+        self.assertEqual(
+            schema,
+            {
+                'items': {
+                    'multipleOf': Decimal('0.01')
+                }
+            })
+        

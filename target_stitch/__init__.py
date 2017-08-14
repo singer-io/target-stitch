@@ -44,7 +44,7 @@ def ensure_multipleof_is_decimal(schema):
         schema[SchemaKey.multipleOf] = float_to_decimal(schema[SchemaKey.multipleOf])
 
     if SchemaKey.properties in schema:
-        for k, v in schema[SchemaKey.properties]:
+        for k, v in schema[SchemaKey.properties].items():
             ensure_multipleof_is_decimal(v)
 
     if SchemaKey.items in schema:
