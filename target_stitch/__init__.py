@@ -38,6 +38,7 @@ class SchemaKey:
     multipleOf = 'multipleOf'
     properties = 'properties'
     items = 'items'
+    format = 'format'
 
 
 def ensure_multipleof_is_decimal(schema):
@@ -72,6 +73,28 @@ def convert_floats_to_decimals(schema, data):
     
     if SchemaKey.multipleOf in schema and isinstance(data, float):
         return float_to_decimal(data)
+
+    return data
+
+def convert_datetime_strings_to_datetime(schema, data):
+
+    if schema is None:
+        return data
+    
+    if SchemaKey.properties in schema and isinstance(data, dict):
+        for key, subschema in schema[SchemaKey.properties].items():
+            if key in data:
+                data[key] = convert_datetime_strings_to_datetime(subschema, data[key])
+        return data
+
+    if SchemaKey.items in schema and isinstance(data, list):
+        subschema = schema[SchemaKey.items]
+        for i in range(len(data)):
+            data[i] = convert_datetime_strings_to_datetime(subschema, data[i])
+        return data
+
+    if SchemaKey.format in schema and schema[SchemaKey.format] == 'date-time' and isinstance(data, str):
+        return dateutil.parser.parse(data)
 
     return data
 
@@ -181,8 +204,7 @@ def parse_record(stream, record, schemas, validators):
     except ValidationError as exc:
         raise ValueError('Record({}) does not conform to schema. Please see logs for details.{}'.format(stream,record)) from exc
 
-    return record
-
+    return convert_datetime_strings_to_datetime(schema, record)
 
 def persist_lines(stitchclient, lines):
     """Takes a client and a stream and persists all the records to the gate,

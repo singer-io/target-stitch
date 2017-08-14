@@ -461,3 +461,35 @@ class TestConvertFloatsToDecimals(unittest.TestCase):
         self.assertEqual(
             target_stitch.convert_floats_to_decimals(schema, record),
             [Decimal('1.23'), 'hi', None])
+
+class TestConvertDatetimeStringsToDatetimes(unittest.TestCase):
+
+    input_datetime_string = '2017-02-27T00:00:00+04:00'
+    expected_datetime = datetime.datetime(2017, 2, 27, 0, 0, tzinfo=dateutil.tz.tzoffset(None, 4 * 60 * 60))
+    
+    def test_simple(self):
+        self.assertEqual(
+            target_stitch.convert_datetime_strings_to_datetime(
+                {'format': 'date-time'},
+                self.input_datetime_string),
+            self.expected_datetime)
+
+    def test_simple_non_string(self):
+        self.assertEqual(
+            target_stitch.convert_datetime_strings_to_datetime(
+                {'format': 'date-time'},
+                Decimal('1.23')),
+            Decimal('1.23'))
+
+    def test_recursive_properties_convert(self):
+        schema = {
+            'properties': {
+                'child': {
+                    'format': 'date-time'
+                }
+            }
+        }
+        record = {'child': self.input_datetime_string}
+        self.assertEqual(
+            target_stitch.convert_datetime_strings_to_datetime(schema, record),
+            {'child': self.expected_datetime})
