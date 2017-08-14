@@ -123,20 +123,18 @@ class TestTargetStitch(unittest.TestCase):
             dt = client.messages[0]['data']['t']
             self.assertEqual(datetime.datetime, type(dt))
 
-    def test_poo(self):
-        def old_parse(s):
-            return datetime.datetime.utcfromtimestamp(rfc3339_to_timestamp(s)).replace(tzinfo=tz.tzutc())
-        def new_parse(s):
-            return dateutil.parser.parse(s)
-        dt = '2017-02-27T00:00:00+00:00'
-        self.assertEqual(old_parse(dt),
-                         new_parse(dt))
+    def test_timezones_and_milliseconds(self):
+        self.assertEqual(dateutil.parser.parse('2017-02-27T00:00:00+00:00'),
+                         datetime.datetime(2017, 2, 27, 0, 0, tzinfo=dateutil.tz.tzutc()))
 
-        dt = '2017-02-27T00:00:00+04:00'
-        self.assertEqual(old_parse(dt),
-                         new_parse(dt))
+        # milliseconds are preserved
+        self.assertEqual(dateutil.parser.parse('2017-02-27T00:00:00.001+00:00'),
+                         datetime.datetime(2017, 2, 27, 0, 0, 0, 1000, tzinfo=dateutil.tz.tzutc()))
 
-
+        # timezone is preserved
+        four_hours_in_seconds = 4 * 60 * 60
+        self.assertEqual(dateutil.parser.parse('2017-02-27T00:00:00+04:00'),
+                         datetime.datetime(2017, 2, 27, 0, 0, tzinfo=dateutil.tz.tzoffset(None, four_hours_in_seconds)))
 
     def test_persist_lines_fails_if_doesnt_fit_schema(self):
         inputs = [
