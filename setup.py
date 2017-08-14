@@ -15,6 +15,7 @@ setup(name='target-stitch',
           'singer-python==2.1.4',
           'stitchclient==0.5.0',
           'strict-rfc3339',
+          'python-dateutil==2.6.1',
       ],
       entry_points='''
           [console_scripts]

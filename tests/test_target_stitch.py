@@ -5,7 +5,10 @@ import io
 import mock
 import sys
 import datetime
+import dateutil
 import jsonschema
+from strict_rfc3339 import rfc3339_to_timestamp
+from dateutil import tz
 
 class DummyClient(target_stitch.DryRunClient):
 
@@ -119,6 +122,19 @@ class TestTargetStitch(unittest.TestCase):
             target_stitch.persist_lines(client, message_lines(inputs))
             dt = client.messages[0]['data']['t']
             self.assertEqual(datetime.datetime, type(dt))
+
+    def test_timezones_and_milliseconds(self):
+        self.assertEqual(dateutil.parser.parse('2017-02-27T00:00:00+00:00'),
+                         datetime.datetime(2017, 2, 27, 0, 0, tzinfo=dateutil.tz.tzutc()))
+
+        # milliseconds are preserved
+        self.assertEqual(dateutil.parser.parse('2017-02-27T00:00:00.001+00:00'),
+                         datetime.datetime(2017, 2, 27, 0, 0, 0, 1000, tzinfo=dateutil.tz.tzutc()))
+
+        # timezone is preserved
+        four_hours_in_seconds = 4 * 60 * 60
+        self.assertEqual(dateutil.parser.parse('2017-02-27T00:00:00+04:00'),
+                         datetime.datetime(2017, 2, 27, 0, 0, tzinfo=dateutil.tz.tzoffset(None, four_hours_in_seconds)))
 
     def test_persist_lines_fails_if_doesnt_fit_schema(self):
         inputs = [
