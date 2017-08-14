@@ -38,6 +38,7 @@ class SchemaKey:
     properties = 'properties'
     items = 'items'
 
+
 def ensure_multipleof_is_decimal(schema):
 
     if SchemaKey.multipleOf in schema:
@@ -50,6 +51,27 @@ def ensure_multipleof_is_decimal(schema):
     if SchemaKey.items in schema:
         ensure_multipleof_is_decimal(schema[SchemaKey.items])
 
+
+def convert_floats_to_decimals(schema, data):
+
+    if SchemaKey.properties in schema and isinstance(data, dict):
+        for key, subschema in schema[SchemaKey.properties].items():
+            if key in data:
+                data[key] = convert_floats_to_decimals(subschema, data[key])
+        return data
+
+    if SchemaKey.items in schema and isinstance(data, list):
+        subschema = schema[SchemaKey.items]
+        for i in range(len(data)):
+            data[i] = convert_floats_to_decimals(subschema, data[i])
+        return data
+    
+    if SchemaKey.multipleOf in schema and isinstance(data, float):
+        return float_to_decimal(data)
+
+    return data
+
+        
 def write_last_state(states):
     logger.info('Persisted batch of {} records to Stitch'.format(len(states)))
     last_state = None

@@ -392,3 +392,56 @@ class TestEnsureMultipleOfIsDecimal(unittest.TestCase):
                 }
             })
         
+
+class TestConvertFloatsToDecimals(unittest.TestCase):
+
+    def test_simple(self):
+        self.assertEqual(
+            target_stitch.convert_floats_to_decimals(
+                {'multipleOf': Decimal('0.01')},
+                1.23),
+            Decimal('1.23'))
+
+    def test_simple_string(self):
+        self.assertEqual(
+            target_stitch.convert_floats_to_decimals(
+                {'multipleOf': Decimal('0.01')},
+                '1.23'),
+            '1.23')
+
+    def test_recursive_properties_convert(self):
+        schema = {
+            'properties': {
+                'child': {
+                    'multipleOf': 0.01
+                }
+            }
+        }
+        record = {'child': 1.23}
+        self.assertEqual(
+            target_stitch.convert_floats_to_decimals(schema, record),
+            {'child': Decimal('1.23')})
+
+    def test_recursive_properties_empty(self):
+        schema = {
+            'properties': {
+                'child': {
+                    'multipleOf': 0.01
+                }
+            }
+        }
+        record = 'hello'
+        self.assertEqual(
+            target_stitch.convert_floats_to_decimals(schema, record),
+            record)
+
+    def test_recursive_items_convert(self):
+        schema = {
+            'items': {
+                'multipleOf': 0.01
+            }
+        }
+        record = [1.23, 'hi', None]
+        self.assertEqual(
+            target_stitch.convert_floats_to_decimals(schema, record),
+            [Decimal('1.23'), 'hi', None])
