@@ -3,7 +3,7 @@
 from setuptools import setup
 
 setup(name='target-stitch',
-      version='0.9.2',
+      version='0.9.3',
       description='Singer.io target for the Stitch API',
       author='Stitch',
       url='https://singer.io',
@@ -15,6 +15,7 @@ setup(name='target-stitch',
           'singer-python==2.1.4',
           'stitchclient==0.5.0',
           'strict-rfc3339',
+          'python-dateutil==2.6.1',
       ],
       entry_points='''
           [console_scripts]

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-
+import pdb
 import argparse
 import logging
 import logging.config
@@ -18,6 +18,7 @@ from decimal import Decimal
 
 from datetime import datetime
 from dateutil import tz
+import dateutil
 
 from strict_rfc3339 import rfc3339_to_timestamp
 
@@ -154,9 +155,7 @@ def extend_with_default(validator_class):
             if "format" in subschema:
                 if subschema['format'] == 'date-time' and instance.get(property) is not None:
                     try:
-                        instance[property] = datetime.utcfromtimestamp(
-                            rfc3339_to_timestamp(instance[property])
-                        ).replace(tzinfo=tz.tzutc())
+                        instance[property] = dateutil.parser.parse(instance[property])
                     except Exception as e:
                         raise Exception('Error parsing property {}, value {}'
                                         .format(property, instance[property]))
