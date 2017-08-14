@@ -136,7 +136,7 @@ def parse_record(stream, record, schemas, validators):
             original_decimal_precision = decimal.getcontext().prec
             precision = len(str(multiple_of).split('.')[1])
             decimal.getcontext().prec = precision
-            o[field_name] = decimal.Decimal(format(o[field_name], '.' + str(precision) + 'f'))
+            o[field_name] = decimal.Decimal(str(format(o[field_name], '.' + str(precision) + 'f')))
             # schema validator for `multipleOf` requires both the value under test and the
             # `multipleOf` value to be of the same type (in this case, Decimal)
             if type(multiple_of) != decimal.Decimal:

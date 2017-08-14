@@ -6,6 +6,7 @@ import mock
 import sys
 import datetime
 import jsonschema
+import decimal
 
 class DummyClient(target_stitch.DryRunClient):
 
@@ -120,6 +121,61 @@ class TestTargetStitch(unittest.TestCase):
             dt = client.messages[0]['data']['t']
             self.assertEqual(datetime.datetime, type(dt))
 
+    def test_persist_lines_converts_decimal(self):
+        inputs = [
+            {"type": "SCHEMA",
+             "stream": "users",
+             "key_properties": ["id"],
+             "schema": {
+                 "properties": {
+                     "id": {"type": "integer"},
+                     "decimal": {"type": "number", "multipleOf": 0.01}}}},
+            {"type": "RECORD",
+             "stream": "users",
+             "record": {"id": 1, "decimal": 1234.1234}}]
+
+        with DummyClient() as client:
+            target_stitch.persist_lines(client, message_lines(inputs))
+            dec = client.messages[0]['data']['decimal']
+            self.assertEqual(decimal.Decimal, type(dec))
+
+    def test_persist_lines_converts_deep_decimal(self):
+        schema = {
+            "type": "SCHEMA",
+            "stream": "users",
+            "key_properties": ["id"],
+            "schema": {
+                "properties": {
+                    "id": {"type": "integer"},
+                    "child": {
+                        "type": "object",
+                        "properties": {
+                            "decimal": {
+                                "type": "number",
+                                "multipleOf": Decimal('0.01')
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        record = {
+            "type": "RECORD",
+            "stream": "users",
+            "record": {
+                "id": 1,
+                "child": {
+                    "decimal": Decimal('1234.12')
+                }
+            }
+        }
+
+        with DummyClient() as client:
+            target_stitch.persist_lines(client, message_lines([schema, record]))
+            dec = client.messages[0]['data']['child']['decimal']
+            self.assertEqual(decimal.Decimal, type(dec))
+
+            
     def test_persist_lines_fails_if_doesnt_fit_schema(self):
         inputs = [
             {"type": "SCHEMA",
