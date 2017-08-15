@@ -167,28 +167,6 @@ class DryRunClient(object):
         self.flush()
 
 
-def extend_with_default(validator_class):
-    validate_properties = validator_class.VALIDATORS["properties"]
-
-    def set_defaults(validator, properties, instance, schema):
-        for error in validate_properties(validator, properties, instance, schema):
-            yield error
-
-        for property, subschema in properties.items():
-            if "format" in subschema:
-                if subschema['format'] == 'date-time' and instance.get(property) is not None:
-                    try:
-                        instance[property] = dateutil.parser.parse(instance[property])
-                    except Exception as e:
-                        raise Exception('Error parsing property {}, value {}'
-                                        .format(property, instance[property]))
-
-    return validators.extend(validator_class, {"properties": set_defaults})
-
-
-ExtendedDraft4Validator = extend_with_default(Draft4Validator)
-
-
 def parse_record(stream, record, schemas, validators):
     if stream in schemas:
         schema = schemas[stream]
@@ -256,11 +234,11 @@ def persist_lines(stitchclient, lines):
                 schemas[message.stream]['required'] = message.key_properties
 
             try:
-                ExtendedDraft4Validator.check_schema(message.schema)
+                Draft4Validator.check_schema(message.schema)
             except SchemaError as schema_error:
                 raise Exception("Invalid json schema for stream {}: {}".format(message.stream, message.schema)) from schema_error
 
-            validators[message.stream] = ExtendedDraft4Validator(message.schema, format_checker=FormatChecker())
+            validators[message.stream] = Draft4Validator(message.schema, format_checker=FormatChecker())
 
         else:
             raise Exception("Unrecognized message {} parsed from line {}".format(message, line))
