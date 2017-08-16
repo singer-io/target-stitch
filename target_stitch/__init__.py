@@ -7,14 +7,13 @@
 # order to correctly transform datatypes from the JSON input to the
 # Transit output and in order to take advantage of JSON Schema validation.
 #
-# 1. We walk the schema and look for instances of `"multipleOf": x` where
-# x is a float. For those cases, we convert x to a Decimal. We do this
-# because in the validation step below, both multipleOf and the value need
-# to be Decimal.
+# 1. We walk the schema and look for instances of `"multipleOf": x` and we
+# convert x to a Decimal. We do this because in the validation step below,
+# both multipleOf and the value need to be Decimal.
 #
 # 2. We walk each record along with its schema and look for cases where
 # the schema says `"multipleOf": x` and the value in the record is a
-# float.
+# float or int.
 #
 # 3. We then validate the record against the schema using the jsonschema library.
 #
@@ -56,8 +55,8 @@ import singer
 logger = singer.get_logger()
 
 
-def float_to_decimal(x):
-    '''Converts float to Decimal.'''
+def number_to_decimal(x):
+    '''Converts float or int to Decimal.'''
 
     # Need to call str on it first because Decimal(int) will lose
     # precision
@@ -82,7 +81,7 @@ def ensure_multipleof_is_decimal(schema):
 
     '''
     if SchemaKey.multipleOf in schema:
-        schema[SchemaKey.multipleOf] = float_to_decimal(schema[SchemaKey.multipleOf])
+        schema[SchemaKey.multipleOf] = number_to_decimal(schema[SchemaKey.multipleOf])
 
     if SchemaKey.properties in schema:
         for k, v in schema[SchemaKey.properties].items():
@@ -93,12 +92,12 @@ def ensure_multipleof_is_decimal(schema):
 
     return schema
 
-def convert_floats_to_decimals(schema, data):
-    '''Convert float values that should be Decimals into Decimals.
+def convert_numbers_to_decimals(schema, data):
+    '''Convert numeric values that should be Decimals into Decimals.
 
     Recursively walks the schema along with the data. For every node where
     the schema is "number" and there is a "multipleOf" specified and the
-    value is a float, converts the value to a Decimal.
+    value is a float or int, converts the value to a Decimal.
 
     This modifies the input data and also returns it.
     '''
@@ -108,17 +107,17 @@ def convert_floats_to_decimals(schema, data):
     if SchemaKey.properties in schema and isinstance(data, dict):
         for key, subschema in schema[SchemaKey.properties].items():
             if key in data:
-                data[key] = convert_floats_to_decimals(subschema, data[key])
+                data[key] = convert_numbers_to_decimals(subschema, data[key])
         return data
 
     if SchemaKey.items in schema and isinstance(data, list):
         subschema = schema[SchemaKey.items]
         for i in range(len(data)):
-            data[i] = convert_floats_to_decimals(subschema, data[i])
+            data[i] = convert_numbers_to_decimals(subschema, data[i])
         return data
 
-    if SchemaKey.multipleOf in schema and isinstance(data, float):
-        return float_to_decimal(data)
+    if SchemaKey.multipleOf in schema and isinstance(data, (float, int)):
+        return number_to_decimal(data)
 
     return data
 
@@ -225,8 +224,8 @@ class DryRunClient(object):
 def parse_record(stream, record, schemas, validators):
     '''Parses the data out of a record message.
 
-    Converts floating point values to decimals for fields where the schema
-    indicates decimal precision via multipleOf.
+    Converts numbers to decimals for fields where the schema indicates
+    decimal precision via multipleOf.
 
     Converts strings to datetimes for fields where the schema indicates
     "format": "date-time".
@@ -239,10 +238,10 @@ def parse_record(stream, record, schemas, validators):
     else:
         schema = {}
 
-    # We need to convert floats to decimals (where appropriate) before
+    # We need to convert numbers to decimals (where appropriate) before
     # doing validation, because validation requires that the multipleOf
     # value in the schema and the value in the record have the same type.
-    record = convert_floats_to_decimals(schema, record)
+    record = convert_numbers_to_decimals(schema, record)
 
     validator = validators[stream]
 
