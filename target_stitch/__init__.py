@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import pdb
 import argparse
+import decimal
+from decimal import Decimal
 import logging
 import logging.config
 import os
@@ -13,8 +15,7 @@ import threading
 import http.client
 import urllib
 import pkg_resources
-import decimal
-from decimal import Decimal
+
 
 from datetime import datetime
 from dateutil import tz
@@ -31,10 +32,15 @@ logger = singer.get_logger()
 
 
 def float_to_decimal(x):
+    '''Converts float to Decimal.'''
+
+    # Need to call str on it first because Decimal(int) will lose
+    # precision
     return Decimal(str(x))
 
 
 class SchemaKey:
+    '''Constants representing keywords in JSON Schema'''
     multipleOf = 'multipleOf'
     properties = 'properties'
     items = 'items'
@@ -42,7 +48,12 @@ class SchemaKey:
 
 
 def ensure_multipleof_is_decimal(schema):
+    '''Ensure multipleOf (if exists) points to a Decimal.
 
+    Recursively walks the given schema (which must be dict), converting
+    every instance of the multipleOf keyword to a Decimal.
+
+    '''
     if SchemaKey.multipleOf in schema:
         schema[SchemaKey.multipleOf] = float_to_decimal(schema[SchemaKey.multipleOf])
 
@@ -55,10 +66,16 @@ def ensure_multipleof_is_decimal(schema):
     return schema
 
 def convert_floats_to_decimals(schema, data):
+    '''Convert float values that should be Decimals into Decimals.
 
+    Recursively walks the schema along with the data. For every node where
+    the schema is "number" and there is a "multipleOf" specified and the
+    value is a float, converts the value to a Decimal.
+
+    '''
     if schema is None:
         return data
-    
+
     if SchemaKey.properties in schema and isinstance(data, dict):
         for key, subschema in schema[SchemaKey.properties].items():
             if key in data:
@@ -70,17 +87,25 @@ def convert_floats_to_decimals(schema, data):
         for i in range(len(data)):
             data[i] = convert_floats_to_decimals(subschema, data[i])
         return data
-    
+
     if SchemaKey.multipleOf in schema and isinstance(data, float):
         return float_to_decimal(data)
 
     return data
 
 def convert_datetime_strings_to_datetime(schema, data):
+    '''Convert string values that should be datetimes into datetimes.
 
+    Recursively walks the schema along with the data. For every node where
+    the schema is "string" and there the "format" is "date-time" and the
+    value is a string, converts the value to a datetime using
+    dateutil.parser.parse. We use that parser because it correctly handles
+    the date-time formats required by JSON Schema.
+
+    '''
     if schema is None:
         return data
-    
+
     if SchemaKey.properties in schema and isinstance(data, dict):
         for key, subschema in schema[SchemaKey.properties].items():
             if key in data:
@@ -98,7 +123,7 @@ def convert_datetime_strings_to_datetime(schema, data):
 
     return data
 
-        
+
 def write_last_state(states):
     logger.info('Persisted batch of {} records to Stitch'.format(len(states)))
     last_state = None
@@ -168,20 +193,36 @@ class DryRunClient(object):
 
 
 def parse_record(stream, record, schemas, validators):
+    '''Parses the data out of a record message.
+
+    Converts floating point values to decimals for fields where the schema
+    indicates decimal precision via multipleOf.
+
+    Converts strings to datetimes for fields where the schema indicates
+    "format": "date-time".
+
+    Raises a ValueError if the resulting record does not pass validation.
+
+    '''
     if stream in schemas:
         schema = schemas[stream]
     else:
         schema = {}
 
+    # We need to convert floats to decimals (where appropriate) before
+    # doing validation, because validation requires that the multipleOf
+    # value in the schema and the value in the record have the same type.
     record = convert_floats_to_decimals(schema, record)
-    
+
     validator = validators[stream]
-    
+
     try:
         validator.validate(record)
     except ValidationError as exc:
         raise ValueError('Record({}) does not conform to schema. Please see logs for details.{}'.format(stream,record)) from exc
 
+    # We need to convert strings to datetimes after validation because
+    # validation operates on strings, not datetimes.
     return convert_datetime_strings_to_datetime(schema, record)
 
 def persist_lines(stitchclient, lines):
@@ -225,6 +266,11 @@ def persist_lines(stitchclient, lines):
             state = message.value
 
         elif isinstance(message, singer.SchemaMessage):
+
+            # Draft4Validator will fail unless both the multipleOf in the
+            # schema and the value in the data are Decimal. So we need to
+            # convert all instances of multipleOf in the schema to
+            # Decimal.
             schemas[message.stream] = ensure_multipleof_is_decimal(message.schema)
             key_properties[message.stream] = message.key_properties
 
