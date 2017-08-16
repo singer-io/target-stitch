@@ -53,6 +53,8 @@ def ensure_multipleof_is_decimal(schema):
     Recursively walks the given schema (which must be dict), converting
     every instance of the multipleOf keyword to a Decimal.
 
+    This modifies the input schema and also returns it.
+
     '''
     if SchemaKey.multipleOf in schema:
         schema[SchemaKey.multipleOf] = float_to_decimal(schema[SchemaKey.multipleOf])
@@ -63,6 +65,7 @@ def ensure_multipleof_is_decimal(schema):
 
     if SchemaKey.items in schema:
         ensure_multipleof_is_decimal(schema[SchemaKey.items])
+
     return schema
 
 def convert_floats_to_decimals(schema, data):
@@ -72,6 +75,7 @@ def convert_floats_to_decimals(schema, data):
     the schema is "number" and there is a "multipleOf" specified and the
     value is a float, converts the value to a Decimal.
 
+    This modifies the input data and also returns it.
     '''
     if schema is None:
         return data
@@ -102,6 +106,7 @@ def convert_datetime_strings_to_datetime(schema, data):
     dateutil.parser.parse. We use that parser because it correctly handles
     the date-time formats required by JSON Schema.
 
+    This modifies the input data and also returns it.
     '''
     if schema is None:
         return data
