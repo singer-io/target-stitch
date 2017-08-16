@@ -1,4 +1,31 @@
 #!/usr/bin/env python3
+
+# Changes target-stitch makes to schema and record
+# ================================================
+#
+# We have to make several changes to both the schema and the record in
+# order to correctly transform datatypes from the JSON input to the
+# Transit output and in order to take advantage of JSON Schema validation.
+#
+# 1. We walk the schema and look for instances of `"multipleOf": x` where
+# x is a float. For those cases, we convert x to a Decimal. We do this
+# because in the validation step below, both multipleOf and the value need
+# to be Decimal.
+#
+# 2. We walk each record along with its schema and look for cases where
+# the schema says `"multipleOf": x` and the value in the record is a
+# float.
+#
+# 3. We then validate the record against the schema using the jsonschema library.
+#
+# 4. After validation, we walk the record and the schema again looking for
+# nodes with type string and format date-time. We convert all such values
+# to datetime. We need to do this _after_ validation because validation
+# operates on strings, not datetime objects.
+
+
+
+
 import argparse
 import copy
 from datetime import datetime
