@@ -1,24 +1,22 @@
 #!/usr/bin/env python3
-import pdb
 import argparse
-import decimal
+import copy
+from datetime import datetime
 from decimal import Decimal
+import http.client
+import io
+import json
 import logging
 import logging.config
 import os
-import copy
-import io
+import pdb
 import sys
-import time
-import json
 import threading
-import http.client
+import time
 import urllib
+
 import pkg_resources
 
-
-from datetime import datetime
-from dateutil import tz
 import dateutil
 
 from strict_rfc3339 import rfc3339_to_timestamp
@@ -147,7 +145,7 @@ class TransitDumper(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, datetime):
             return obj.isoformat()
-        if isinstance(obj, decimal.Decimal):
+        if isinstance(obj, Decimal):
             # wanted a simple yield str(o) in the next line,
             # but that would mean a yield on the line with super(...),
             # which wouldn't work (see my comment below), so...
