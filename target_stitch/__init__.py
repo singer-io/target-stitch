@@ -1,22 +1,48 @@
 #!/usr/bin/env python3
-import pdb
+
+# Changes target-stitch makes to schema and record
+# ================================================
+#
+# We have to make several changes to both the schema and the record in
+# order to correctly transform datatypes from the JSON input to the
+# Transit output and in order to take advantage of JSON Schema validation.
+#
+# 1. We walk the schema and look for instances of `"multipleOf": x` and we
+# convert x to a Decimal. We do this because in the validation step below,
+# both multipleOf and the value need to be Decimal.
+#
+# 2. We walk each record along with its schema and look for cases where
+# the schema says `"multipleOf": x` and the value in the record is a
+# float or int.
+#
+# 3. We then validate the record against the schema using the jsonschema library.
+#
+# 4. After validation, we walk the record and the schema again looking for
+# nodes with type string and format date-time. We convert all such values
+# to datetime. We need to do this _after_ validation because validation
+# operates on strings, not datetime objects.
+
+
+
+
 import argparse
+import copy
+from datetime import datetime
+from decimal import Decimal
+import http.client
+import io
+import json
 import logging
 import logging.config
 import os
-import copy
-import io
+import pdb
 import sys
-import time
-import json
 import threading
-import http.client
+import time
 import urllib
-import pkg_resources
-import decimal
 
-from datetime import datetime
-from dateutil import tz
+import pkg_resources
+
 import dateutil
 
 from strict_rfc3339 import rfc3339_to_timestamp
@@ -27,6 +53,104 @@ from stitchclient.client import Client
 import singer
 
 logger = singer.get_logger()
+
+
+def number_to_decimal(x):
+    '''Converts float or int to Decimal.'''
+
+    # Need to call str on it first because Decimal(int) will lose
+    # precision
+    return Decimal(str(x))
+
+
+class SchemaKey:
+    '''Constants representing keywords in JSON Schema'''
+    multipleOf = 'multipleOf'
+    properties = 'properties'
+    items = 'items'
+    format = 'format'
+
+
+def ensure_multipleof_is_decimal(schema):
+    '''Ensure multipleOf (if exists) points to a Decimal.
+
+    Recursively walks the given schema (which must be dict), converting
+    every instance of the multipleOf keyword to a Decimal.
+
+    This modifies the input schema and also returns it.
+
+    '''
+    if SchemaKey.multipleOf in schema:
+        schema[SchemaKey.multipleOf] = number_to_decimal(schema[SchemaKey.multipleOf])
+
+    if SchemaKey.properties in schema:
+        for k, v in schema[SchemaKey.properties].items():
+            ensure_multipleof_is_decimal(v)
+
+    if SchemaKey.items in schema:
+        ensure_multipleof_is_decimal(schema[SchemaKey.items])
+
+    return schema
+
+def convert_numbers_to_decimals(schema, data):
+    '''Convert numeric values that should be Decimals into Decimals.
+
+    Recursively walks the schema along with the data. For every node where
+    the schema is "number" and there is a "multipleOf" specified and the
+    value is a float or int, converts the value to a Decimal.
+
+    This modifies the input data and also returns it.
+    '''
+    if schema is None:
+        return data
+
+    if SchemaKey.properties in schema and isinstance(data, dict):
+        for key, subschema in schema[SchemaKey.properties].items():
+            if key in data:
+                data[key] = convert_numbers_to_decimals(subschema, data[key])
+        return data
+
+    if SchemaKey.items in schema and isinstance(data, list):
+        subschema = schema[SchemaKey.items]
+        for i in range(len(data)):
+            data[i] = convert_numbers_to_decimals(subschema, data[i])
+        return data
+
+    if SchemaKey.multipleOf in schema and isinstance(data, (float, int)):
+        return number_to_decimal(data)
+
+    return data
+
+def convert_datetime_strings_to_datetime(schema, data):
+    '''Convert string values that should be datetimes into datetimes.
+
+    Recursively walks the schema along with the data. For every node where
+    the schema is "string" and there the "format" is "date-time" and the
+    value is a string, converts the value to a datetime using
+    dateutil.parser.parse. We use that parser because it correctly handles
+    the date-time formats required by JSON Schema.
+
+    This modifies the input data and also returns it.
+    '''
+    if schema is None:
+        return data
+
+    if SchemaKey.properties in schema and isinstance(data, dict):
+        for key, subschema in schema[SchemaKey.properties].items():
+            if key in data:
+                data[key] = convert_datetime_strings_to_datetime(subschema, data[key])
+        return data
+
+    if SchemaKey.items in schema and isinstance(data, list):
+        subschema = schema[SchemaKey.items]
+        for i in range(len(data)):
+            data[i] = convert_datetime_strings_to_datetime(subschema, data[i])
+        return data
+
+    if SchemaKey.format in schema and schema[SchemaKey.format] == 'date-time' and isinstance(data, str):
+        return dateutil.parser.parse(data)
+
+    return data
 
 
 def write_last_state(states):
@@ -47,7 +171,7 @@ class TransitDumper(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, datetime):
             return obj.isoformat()
-        if isinstance(obj, decimal.Decimal):
+        if isinstance(obj, Decimal):
             # wanted a simple yield str(o) in the next line,
             # but that would mean a yield on the line with super(...),
             # which wouldn't work (see my comment below), so...
@@ -97,61 +221,38 @@ class DryRunClient(object):
         self.flush()
 
 
-def extend_with_default(validator_class):
-    validate_properties = validator_class.VALIDATORS["properties"]
-
-    def set_defaults(validator, properties, instance, schema):
-        for error in validate_properties(validator, properties, instance, schema):
-            yield error
-
-        for property, subschema in properties.items():
-            if "format" in subschema:
-                if subschema['format'] == 'date-time' and instance.get(property) is not None:
-                    try:
-                        instance[property] = dateutil.parser.parse(instance[property])
-                    except Exception as e:
-                        raise Exception('Error parsing property {}, value {}'
-                                        .format(property, instance[property]))
-
-    return validators.extend(validator_class, {"properties": set_defaults})
-
-
-ExtendedDraft4Validator = extend_with_default(Draft4Validator)
-
-
 def parse_record(stream, record, schemas, validators):
+    '''Parses the data out of a record message.
+
+    Converts numbers to decimals for fields where the schema indicates
+    decimal precision via multipleOf.
+
+    Converts strings to datetimes for fields where the schema indicates
+    "format": "date-time".
+
+    Raises a ValueError if the resulting record does not pass validation.
+
+    '''
     if stream in schemas:
         schema = schemas[stream]
     else:
         schema = {}
-    o = copy.deepcopy(record)
 
-    for field_name in o:
-        field_schema = schema['properties'].get(field_name)
-        if not field_schema or o[field_name] is None:
-            continue
-        multiple_of = field_schema.get('multipleOf')
-        if multiple_of and abs(multiple_of) < 1:
-            original_decimal_precision = decimal.getcontext().prec
-            precision = len(str(multiple_of).split('.')[1])
-            decimal.getcontext().prec = precision
-            o[field_name] = decimal.Decimal(format(o[field_name], '.' + str(precision) + 'f'))
-            # schema validator for `multipleOf` requires both the value under test and the
-            # `multipleOf` value to be of the same type (in this case, Decimal)
-            if type(multiple_of) != decimal.Decimal:
-                schema['properties'][field_name]['multipleOf'] = decimal.Decimal(str(multiple_of))
-                validators[stream] = ExtendedDraft4Validator(schema, format_checker=FormatChecker())
-            decimal.getcontext().prec = original_decimal_precision
+    # We need to convert numbers to decimals (where appropriate) before
+    # doing validation, because validation requires that the multipleOf
+    # value in the schema and the value in the record have the same type.
+    record = convert_numbers_to_decimals(schema, record)
 
     validator = validators[stream]
 
     try:
-        validator.validate(o)
+        validator.validate(record)
     except ValidationError as exc:
         raise ValueError('Record({}) does not conform to schema. Please see logs for details.{}'.format(stream,record)) from exc
 
-    return o
-
+    # We need to convert strings to datetimes after validation because
+    # validation operates on strings, not datetimes.
+    return convert_datetime_strings_to_datetime(schema, record)
 
 def persist_lines(stitchclient, lines):
     """Takes a client and a stream and persists all the records to the gate,
@@ -194,7 +295,12 @@ def persist_lines(stitchclient, lines):
             state = message.value
 
         elif isinstance(message, singer.SchemaMessage):
-            schemas[message.stream] = message.schema
+
+            # Draft4Validator will fail unless both the multipleOf in the
+            # schema and the value in the data are Decimal. So we need to
+            # convert all instances of multipleOf in the schema to
+            # Decimal.
+            schemas[message.stream] = ensure_multipleof_is_decimal(message.schema)
             key_properties[message.stream] = message.key_properties
 
             # JSON schema will complain if 'required' is present but
@@ -203,11 +309,11 @@ def persist_lines(stitchclient, lines):
                 schemas[message.stream]['required'] = message.key_properties
 
             try:
-                ExtendedDraft4Validator.check_schema(message.schema)
+                Draft4Validator.check_schema(message.schema)
             except SchemaError as schema_error:
                 raise Exception("Invalid json schema for stream {}: {}".format(message.stream, message.schema)) from schema_error
 
-            validators[message.stream] = ExtendedDraft4Validator(message.schema, format_checker=FormatChecker())
+            validators[message.stream] = Draft4Validator(message.schema, format_checker=FormatChecker())
 
         else:
             raise Exception("Unrecognized message {} parsed from line {}".format(message, line))

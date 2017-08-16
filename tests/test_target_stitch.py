@@ -7,6 +7,8 @@ import sys
 import datetime
 import dateutil
 import jsonschema
+import decimal
+from decimal import Decimal
 from strict_rfc3339 import rfc3339_to_timestamp
 from dateutil import tz
 
@@ -123,6 +125,61 @@ class TestTargetStitch(unittest.TestCase):
             dt = client.messages[0]['data']['t']
             self.assertEqual(datetime.datetime, type(dt))
 
+    def test_persist_lines_converts_decimal(self):
+        inputs = [
+            {"type": "SCHEMA",
+             "stream": "users",
+             "key_properties": ["id"],
+             "schema": {
+                 "properties": {
+                     "id": {"type": "integer"},
+                     "decimal": {"type": "number", "multipleOf": 0.01}}}},
+            {"type": "RECORD",
+             "stream": "users",
+             "record": {"id": 1, "decimal": 1234.12}}]
+
+        with DummyClient() as client:
+            target_stitch.persist_lines(client, message_lines(inputs))
+            dec = client.messages[0]['data']['decimal']
+            self.assertEqual(decimal.Decimal, type(dec))
+
+    def test_persist_lines_converts_deep_decimal(self):
+        schema = {
+            "type": "SCHEMA",
+            "stream": "users",
+            "key_properties": ["id"],
+            "schema": {
+                "properties": {
+                    "id": {"type": "integer"},
+                    "child": {
+                        "type": "object",
+                        "properties": {
+                            "decimal": {
+                                "type": "number",
+                                "multipleOf": 0.01
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        record = {
+            "type": "RECORD",
+            "stream": "users",
+            "record": {
+                "id": 1,
+                "child": {
+                    "decimal": 1234.12
+                }
+            }
+        }
+
+        with DummyClient() as client:
+            target_stitch.persist_lines(client, message_lines([schema, record]))
+            dec = client.messages[0]['data']['child']['decimal']
+            self.assertEqual(decimal.Decimal, type(dec))
+
+            
     def test_timezones_and_milliseconds(self):
         self.assertEqual(dateutil.parser.parse('2017-02-27T00:00:00+00:00'),
                          datetime.datetime(2017, 2, 27, 0, 0, tzinfo=dateutil.tz.tzutc()))
@@ -303,6 +360,150 @@ class TestTargetStitch(unittest.TestCase):
         with DummyClient() as client:
             target_stitch.persist_lines(client, message_lines(inputs))
             self.assertEqual(str(sorted(client.messages[0]['data'].items())),
-                             "[('a_dec', Decimal('4.7200')), ('a_float', 4.72)]")
+                             "[('a_dec', Decimal('4.72')), ('a_float', 4.72)]")
             self.assertEqual(str(sorted(client.messages[1]['data'].items())),
                              "[('a_dec', None), ('a_float', 4.72)]")
+
+
+class TestEnsureMultipleOfIsDecimal(unittest.TestCase):
+    def test_simple(self):
+        schema = {'multipleOf': 0.01}
+        target_stitch.ensure_multipleof_is_decimal(schema)        
+        self.assertEqual(
+            schema,
+            {'multipleOf': Decimal('0.01')})
+
+    def test_simple_int(self):
+        schema = {'multipleOf': 1}
+        target_stitch.ensure_multipleof_is_decimal(schema)        
+        self.assertEqual(
+            schema,
+            {'multipleOf': Decimal('1')})        
+        
+    def test_recursive_properties(self):
+        schema = {
+            'properties': {
+                'child': {
+                    'multipleOf': 0.01
+                }
+            }
+        }
+        target_stitch.ensure_multipleof_is_decimal(schema)        
+        self.assertEqual(
+            schema,
+            {
+                'properties': {
+                    'child': {
+                        'multipleOf': Decimal('0.01')
+                    }
+                }
+            }
+        )
+        
+    def test_recursive_properties(self):
+        schema = {
+            'items': {
+                'multipleOf': 0.01
+            }
+        }
+        target_stitch.ensure_multipleof_is_decimal(schema)        
+        self.assertEqual(
+            schema,
+            {
+                'items': {
+                    'multipleOf': Decimal('0.01')
+                }
+            })
+        
+
+class TestConvertFloatsToDecimals(unittest.TestCase):
+
+    def test_simple_float(self):
+        self.assertEqual(
+            target_stitch.convert_numbers_to_decimals(
+                {'multipleOf': Decimal('0.01')},
+                1.23),
+            Decimal('1.23'))
+
+    def test_simple_int(self):
+        self.assertEqual(
+            type(target_stitch.convert_numbers_to_decimals(
+                {'multipleOf': Decimal('0.01')},
+                1)),
+            Decimal)
+
+    def test_simple_string(self):
+        self.assertEqual(
+            target_stitch.convert_numbers_to_decimals(
+                {'multipleOf': Decimal('0.01')},
+                '1.23'),
+            '1.23')
+
+    def test_recursive_properties_convert(self):
+        schema = {
+            'properties': {
+                'child': {
+                    'multipleOf': 0.01
+                }
+            }
+        }
+        record = {'child': 1.23}
+        self.assertEqual(
+            target_stitch.convert_numbers_to_decimals(schema, record),
+            {'child': Decimal('1.23')})
+
+    def test_recursive_properties_empty(self):
+        schema = {
+            'properties': {
+                'child': {
+                    'multipleOf': 0.01
+                }
+            }
+        }
+        record = 'hello'
+        self.assertEqual(
+            target_stitch.convert_numbers_to_decimals(schema, record),
+            record)
+
+    def test_recursive_items_convert(self):
+        schema = {
+            'items': {
+                'multipleOf': 0.01
+            }
+        }
+        record = [1.23, 'hi', None]
+        self.assertEqual(
+            target_stitch.convert_numbers_to_decimals(schema, record),
+            [Decimal('1.23'), 'hi', None])
+
+class TestConvertDatetimeStringsToDatetimes(unittest.TestCase):
+
+    input_datetime_string = '2017-02-27T00:00:00+04:00'
+    expected_datetime = datetime.datetime(2017, 2, 27, 0, 0, tzinfo=dateutil.tz.tzoffset(None, 4 * 60 * 60))
+    
+    def test_simple(self):
+        self.assertEqual(
+            target_stitch.convert_datetime_strings_to_datetime(
+                {'format': 'date-time'},
+                self.input_datetime_string),
+            self.expected_datetime)
+
+    def test_simple_non_string(self):
+        self.assertEqual(
+            target_stitch.convert_datetime_strings_to_datetime(
+                {'format': 'date-time'},
+                Decimal('1.23')),
+            Decimal('1.23'))
+
+    def test_recursive_properties_convert(self):
+        schema = {
+            'properties': {
+                'child': {
+                    'format': 'date-time'
+                }
+            }
+        }
+        record = {'child': self.input_datetime_string}
+        self.assertEqual(
+            target_stitch.convert_datetime_strings_to_datetime(schema, record),
+            {'child': self.expected_datetime})
