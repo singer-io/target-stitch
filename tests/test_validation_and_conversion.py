@@ -74,10 +74,10 @@ class TestTypeConversion(unittest.TestCase):
     def test(self):
         for case in cases:
             result = run_case(case)
-            self.assertEqual(type(case.expected), type(result))
+            self.assertEqual(case.expected, result, str(case))
             if isinstance(case.expected, Result):
-                self.assertEqual(type(case.expected.value), type(result.value))
-                self.assertEqual(case.expected.value, result.value)                                
+                self.assertEqual(type(case.expected.value), type(result.value), str(case))
+
 
 if __name__ == '__main__':
     print('        {:>41} {:>30} {:>30} {:>30}'.format(

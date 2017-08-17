@@ -69,6 +69,7 @@ class SchemaKey:
     properties = 'properties'
     items = 'items'
     format = 'format'
+    type = 'type'
 
 
 def ensure_multipleof_is_decimal(schema):
@@ -118,6 +119,9 @@ def convert_numbers_to_decimals(schema, data):
 
     if SchemaKey.multipleOf in schema and isinstance(data, (float, int)):
         return number_to_decimal(data)
+
+    if schema.get(SchemaKey.type) == 'number' and isinstance(data, int) and not isinstance(data, bool):
+        return float(data)
 
     return data
 
