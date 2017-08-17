@@ -22,20 +22,13 @@
 # to datetime. We need to do this _after_ validation because validation
 # operates on strings, not datetime objects.
 
-
-
-
 import argparse
-import copy
 from datetime import datetime
 from decimal import Decimal
 import http.client
 import io
 import json
-import logging
-import logging.config
 import os
-import pdb
 import sys
 import threading
 import time
@@ -45,9 +38,7 @@ import pkg_resources
 
 import dateutil
 
-from strict_rfc3339 import rfc3339_to_timestamp
-
-from jsonschema import ValidationError, Draft4Validator, validators, FormatChecker
+from jsonschema import ValidationError, Draft4Validator, FormatChecker
 from jsonschema.exceptions import SchemaError
 from stitchclient.client import Client
 import singer
