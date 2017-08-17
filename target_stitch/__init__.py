@@ -93,7 +93,7 @@ def ensure_multipleof_is_decimal(schema):
 
     return schema
 
-def convert_numbers_to_decimals(schema, data):
+def correct_numeric_types(schema, data):
     '''Convert numeric values that should be Decimals into Decimals.
 
     Recursively walks the schema along with the data. For every node where
@@ -108,13 +108,13 @@ def convert_numbers_to_decimals(schema, data):
     if SchemaKey.properties in schema and isinstance(data, dict):
         for key, subschema in schema[SchemaKey.properties].items():
             if key in data:
-                data[key] = convert_numbers_to_decimals(subschema, data[key])
+                data[key] = correct_numeric_types(subschema, data[key])
         return data
 
     if SchemaKey.items in schema and isinstance(data, list):
         subschema = schema[SchemaKey.items]
         for i in range(len(data)):
-            data[i] = convert_numbers_to_decimals(subschema, data[i])
+            data[i] = correct_numeric_types(subschema, data[i])
         return data
 
     if SchemaKey.multipleOf in schema and isinstance(data, (float, int)):
@@ -246,10 +246,11 @@ def parse_record(stream, record, schemas, validators):
     else:
         schema = {}
 
-    # We need to convert numbers to decimals (where appropriate) before
-    # doing validation, because validation requires that the multipleOf
-    # value in the schema and the value in the record have the same type.
-    record = convert_numbers_to_decimals(schema, record)
+    # We need to correct numeric types (convert floats and ints to
+    # decimals, convert ints to floats) where appropriate before doing
+    # validation, because validation requires that the multipleOf value in
+    # the schema and the value in the record have the same type.
+    record = correct_numeric_types(schema, record)
 
     validator = validators[stream]
 
