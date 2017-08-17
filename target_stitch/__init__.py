@@ -223,8 +223,11 @@ class DryRunClient(object):
 def parse_record(stream, record, schemas, validators):
     '''Parses the data out of a record message.
 
-    Converts numbers to decimals for fields where the schema indicates
-    decimal precision via multipleOf.
+    Converts ints and floats to decimals for fields where the schema
+    indicates decimal precision via multipleOf.
+
+    Converts ints to floats for fields where the schema is number and
+    multipleOf is not specified.
 
     Converts strings to datetimes for fields where the schema indicates
     "format": "date-time".
