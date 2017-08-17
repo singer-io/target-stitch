@@ -22,20 +22,13 @@
 # to datetime. We need to do this _after_ validation because validation
 # operates on strings, not datetime objects.
 
-
-
-
 import argparse
-import copy
 from datetime import datetime
 from decimal import Decimal
 import http.client
 import io
 import json
-import logging
-import logging.config
 import os
-import pdb
 import sys
 import threading
 import time
@@ -45,9 +38,7 @@ import pkg_resources
 
 import dateutil
 
-from strict_rfc3339 import rfc3339_to_timestamp
-
-from jsonschema import ValidationError, Draft4Validator, validators, FormatChecker
+from jsonschema import ValidationError, Draft4Validator, FormatChecker
 from jsonschema.exceptions import SchemaError
 from stitchclient.client import Client
 import singer
@@ -69,6 +60,7 @@ class SchemaKey:
     properties = 'properties'
     items = 'items'
     format = 'format'
+    type = 'type'
 
 
 def ensure_multipleof_is_decimal(schema):
@@ -92,7 +84,7 @@ def ensure_multipleof_is_decimal(schema):
 
     return schema
 
-def convert_numbers_to_decimals(schema, data):
+def correct_numeric_types(schema, data):
     '''Convert numeric values that should be Decimals into Decimals.
 
     Recursively walks the schema along with the data. For every node where
@@ -107,17 +99,24 @@ def convert_numbers_to_decimals(schema, data):
     if SchemaKey.properties in schema and isinstance(data, dict):
         for key, subschema in schema[SchemaKey.properties].items():
             if key in data:
-                data[key] = convert_numbers_to_decimals(subschema, data[key])
+                data[key] = correct_numeric_types(subschema, data[key])
         return data
 
     if SchemaKey.items in schema and isinstance(data, list):
         subschema = schema[SchemaKey.items]
         for i in range(len(data)):
-            data[i] = convert_numbers_to_decimals(subschema, data[i])
+            data[i] = correct_numeric_types(subschema, data[i])
         return data
 
     if SchemaKey.multipleOf in schema and isinstance(data, (float, int)):
         return number_to_decimal(data)
+
+    # True and False are instances of bool and also instances of int. I
+    # don't think it's appropriate to accept true and false JSON values as
+    # numbers though. So don't attempt to translate True and False to
+    # float. Let the validation step reject them later.
+    if schema.get(SchemaKey.type) == 'number' and isinstance(data, int) and not isinstance(data, bool):
+        return float(data)
 
     return data
 
@@ -224,8 +223,11 @@ class DryRunClient(object):
 def parse_record(stream, record, schemas, validators):
     '''Parses the data out of a record message.
 
-    Converts numbers to decimals for fields where the schema indicates
-    decimal precision via multipleOf.
+    Converts ints and floats to decimals for fields where the schema
+    indicates decimal precision via multipleOf.
+
+    Converts ints to floats for fields where the schema is number and
+    multipleOf is not specified.
 
     Converts strings to datetimes for fields where the schema indicates
     "format": "date-time".
@@ -238,10 +240,11 @@ def parse_record(stream, record, schemas, validators):
     else:
         schema = {}
 
-    # We need to convert numbers to decimals (where appropriate) before
-    # doing validation, because validation requires that the multipleOf
-    # value in the schema and the value in the record have the same type.
-    record = convert_numbers_to_decimals(schema, record)
+    # We need to correct numeric types (convert floats and ints to
+    # decimals, convert ints to floats) where appropriate before doing
+    # validation, because validation requires that the multipleOf value in
+    # the schema and the value in the record have the same type.
+    record = correct_numeric_types(schema, record)
 
     validator = validators[stream]
 

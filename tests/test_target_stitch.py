@@ -9,6 +9,7 @@ import dateutil
 import jsonschema
 import decimal
 from decimal import Decimal
+from jsonschema import ValidationError, Draft4Validator, validators, FormatChecker
 from strict_rfc3339 import rfc3339_to_timestamp
 from dateutil import tz
 
@@ -416,25 +417,25 @@ class TestEnsureMultipleOfIsDecimal(unittest.TestCase):
             })
         
 
-class TestConvertFloatsToDecimals(unittest.TestCase):
+class TestCorrectNumericTypes(unittest.TestCase):
 
     def test_simple_float(self):
         self.assertEqual(
-            target_stitch.convert_numbers_to_decimals(
+            target_stitch.correct_numeric_types(
                 {'multipleOf': Decimal('0.01')},
                 1.23),
             Decimal('1.23'))
 
     def test_simple_int(self):
         self.assertEqual(
-            type(target_stitch.convert_numbers_to_decimals(
+            type(target_stitch.correct_numeric_types(
                 {'multipleOf': Decimal('0.01')},
                 1)),
             Decimal)
 
     def test_simple_string(self):
         self.assertEqual(
-            target_stitch.convert_numbers_to_decimals(
+            target_stitch.correct_numeric_types(
                 {'multipleOf': Decimal('0.01')},
                 '1.23'),
             '1.23')
@@ -449,7 +450,7 @@ class TestConvertFloatsToDecimals(unittest.TestCase):
         }
         record = {'child': 1.23}
         self.assertEqual(
-            target_stitch.convert_numbers_to_decimals(schema, record),
+            target_stitch.correct_numeric_types(schema, record),
             {'child': Decimal('1.23')})
 
     def test_recursive_properties_empty(self):
@@ -462,7 +463,7 @@ class TestConvertFloatsToDecimals(unittest.TestCase):
         }
         record = 'hello'
         self.assertEqual(
-            target_stitch.convert_numbers_to_decimals(schema, record),
+            target_stitch.correct_numeric_types(schema, record),
             record)
 
     def test_recursive_items_convert(self):
@@ -473,7 +474,7 @@ class TestConvertFloatsToDecimals(unittest.TestCase):
         }
         record = [1.23, 'hi', None]
         self.assertEqual(
-            target_stitch.convert_numbers_to_decimals(schema, record),
+            target_stitch.correct_numeric_types(schema, record),
             [Decimal('1.23'), 'hi', None])
 
 class TestConvertDatetimeStringsToDatetimes(unittest.TestCase):
@@ -507,3 +508,4 @@ class TestConvertDatetimeStringsToDatetimes(unittest.TestCase):
         self.assertEqual(
             target_stitch.convert_datetime_strings_to_datetime(schema, record),
             {'child': self.expected_datetime})
+
