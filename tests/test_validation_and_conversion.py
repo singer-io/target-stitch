@@ -69,8 +69,7 @@ cases = [
 
 
 def run_case(case):
-
-'''Given a Case, call parse_record on it and return the result as either a
+    '''Given a Case, call parse_record on it and return the result as either a
     Result or an Error.'''
     
     stream = 'stream'
