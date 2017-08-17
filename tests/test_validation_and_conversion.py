@@ -1,3 +1,22 @@
+'''Comprehensive tests for datatype conversion.
+
+This contains a table of:
+
+  1. Input schema
+  2. Input value
+  3. Expected result
+
+The test just calls parse_record on all the input schemas and values and
+asserts that the actual result matches the expected result.
+
+There's also a main program, so if you run 
+
+    python tests/test_validation_and_conversion.py
+
+you'll see the inputs and expected and actual outputs.
+
+'''
+
 import unittest
 from decimal import Decimal
 import target_stitch
@@ -50,7 +69,8 @@ cases = [
 
 
 def run_case(case):
-    '''Given a Case, call parse_record on it and return the result as either a
+
+'''Given a Case, call parse_record on it and return the result as either a
     Result or an Error.'''
     
     stream = 'stream'
