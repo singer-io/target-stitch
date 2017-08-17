@@ -106,5 +106,3 @@ if __name__ == '__main__':
                 format_value_and_type(case.value),
                 format_value_and_type(got_result),
                 format_value_and_type(expected_result)))
-
-

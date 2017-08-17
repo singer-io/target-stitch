@@ -120,6 +120,10 @@ def convert_numbers_to_decimals(schema, data):
     if SchemaKey.multipleOf in schema and isinstance(data, (float, int)):
         return number_to_decimal(data)
 
+    # True and False are instances of bool and also instances of int. I
+    # don't think it's appropriate to accept true and false JSON values as
+    # numbers though. So don't attempt to translate True and False to
+    # float. Let the validation step reject them later.
     if schema.get(SchemaKey.type) == 'number' and isinstance(data, int) and not isinstance(data, bool):
         return float(data)
 
