@@ -9,6 +9,7 @@ import dateutil
 import jsonschema
 import decimal
 from decimal import Decimal
+from jsonschema import ValidationError, Draft4Validator, validators, FormatChecker
 from strict_rfc3339 import rfc3339_to_timestamp
 from dateutil import tz
 
@@ -507,3 +508,4 @@ class TestConvertDatetimeStringsToDatetimes(unittest.TestCase):
         self.assertEqual(
             target_stitch.convert_datetime_strings_to_datetime(schema, record),
             {'child': self.expected_datetime})
+
