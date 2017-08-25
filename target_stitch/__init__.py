@@ -33,6 +33,8 @@ import sys
 import threading
 import time
 import urllib
+import cProfile
+import pstats
 
 import pkg_resources
 
@@ -381,7 +383,7 @@ def collect():
         logger.debug('Collection request failed')
 
 
-def main():
+def main_impl():
     parser = argparse.ArgumentParser()
     parser.add_argument('-c', '--config', help='Config file')
     parser.add_argument('-n', '--dry-run', help='Dry run - Do not push data to Stitch', action='store_true')
@@ -396,5 +398,19 @@ def main():
     write_last_state([state])
     logger.info("Exiting normally")
 
+def main():
+    pr = cProfile.Profile()
+    logger.info('Enabling profiling')
+    pr.enable()
+    main_impl()
+    logger.info('Disabling profiling')
+    pr.disable()
+
+    ps = pstats.Stats(pr, stream=sys.stderr).sort_stats('cumtime')
+    sys.stderr.write('Here are the profiling stats')    
+    ps.print_stats()
+    
 if __name__ == '__main__':
     main()
+
+
