@@ -118,7 +118,7 @@ class TargetStitch(object):
                 return
             else:
                 self.flush()
-                self.ensure_batch(stream, version)
+        self.ensure_batch(stream, version)
 
     def ensure_batch(self, stream, version):
         stream_meta = self.stream_meta[stream]
@@ -140,9 +140,7 @@ class TargetStitch(object):
 
         elif isinstance(message, singer.RecordMessage):
             self.flush_if_new_table(message.stream, message.version)
-            if not self.batch:
-                self.ensure_batch(message.stream, message.version)
-            elif (self.batch.size + len(line) > self.max_batch_bytes):
+            if (self.batch.size + len(line) > self.max_batch_bytes):
                 self.flush()
                 self.ensure_batch(message.stream, message.version)
             self.batch.records.append({
@@ -154,7 +152,8 @@ class TargetStitch(object):
 
         elif isinstance(message, singer.ActivateVersionMessage):
             self.flush_if_new_table(message.stream, message.version)
-            self.batch.activate_version = True
+            self.ensure_batch(message.stream, message.version)            
+            self.batch.activate_table_version = True
 
         elif isinstance(message, singer.StateMessage):
             self.state = message.value
@@ -199,9 +198,9 @@ def stitch_client(args):
         if 'stitch_url' in config:
             url = config['stitch_url']
             logger.debug("Persisting to Stitch Gate at {}".format(url))
-            return Client(client_id, token, stitch_url=url)
+            return GateClient(client_id, token, stitch_url=url)
         else:
-            return Client(client_id, token)
+            return GateClient(client_id, token)
 
 
 def collect():
