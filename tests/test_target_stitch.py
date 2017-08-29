@@ -161,239 +161,45 @@ class TestTargetStitch(unittest.TestCase):
         self.assertEqual(got, expected)
         self.assertEqual('1\n4\n10\n', self.out.getvalue())
 
-#     def test_persist_lines_updates_schema(self):
-#         inputs = [
-#             {"type": "SCHEMA",
-#              "stream": "users",
-#              "key_properties": ["id"],
-#              "schema": {
-#                  "properties": {
-#                      "id": {"type": "integer"},
-#                      "name": {"type": "string"}}}},
-#             {"type": "RECORD",
-#              "stream": "users",
-#              "record": {"id": 1, "name": "mike"}},
-#             {"type": "SCHEMA",
-#              "stream": "users",
-#              "key_properties": ["id"],
-#              "schema": {
-#                  "properties": {
-#                      "id": {"type": "string"},
-#                      "name": {"type": "string"}}}},
-#             {"type": "RECORD",
-#              "stream": "users",
-#              "record": {"id": "1", "name": "mike"}}]
+    def test_persist_lines_updates_schema(self):
+        inputs = [
+            {"type": "SCHEMA",
+             "stream": "users",
+             "key_properties": ["id"],
+             "schema": {
+                 "properties": {
+                     "id": {"type": "integer"},
+                     "name": {"type": "string"}}}},
+            {"type": "RECORD",
+             "stream": "users",
+             "record": {"id": 1, "name": "mike"}},
+            {"type": "SCHEMA",
+             "stream": "users",
+             "key_properties": ["id"],
+             "schema": {
+                 "properties": {
+                     "id": {"type": "string"},
+                     "name": {"type": "string"}}}},
+            {"type": "RECORD",
+             "stream": "users",
+             "record": {"id": "1", "name": "mike"}}]
 
-#         with DummyClient() as client:
-#             target_stitch.persist_lines(client, message_lines(inputs))
-#             self.assertEqual(len(client.messages), 2)
-#             self.assertEqual(client.messages[0]['key_names'], ['id'])
+        with self.target_stitch as target:
+            for line in message_lines(inputs):
+                target.handle_line(line)
 
-#     def test_persist_lines_updates_schema_will_error(self):
-#         inputs = [
-#             {"type": "SCHEMA",
-#              "stream": "users",
-#              "key_properties": ["id"],
-#              "schema": {
-#                  "properties": {
-#                      "id": {"type": "integer"},
-#                      "name": {"type": "string"}}}},
-#             {"type": "RECORD",
-#              "stream": "users",
-#              "record": {"id": 1, "name": "mike"}},
-#             {"type": "SCHEMA",
-#              "stream": "users",
-#              "key_properties": ["id"],
-#              "schema": {
-#                  "properties": {
-#                      "id": {"type": "string"},
-#                      "name": {"type": "string"}}}},
-#             {"type": "RECORD",
-#              "stream": "users",
-#              "record": {"id": 1, "name": "mike"}}]
+        self.assertEqual(len(self.client.batches), 2)
+        self.assertEqual(self.client.batches[0].key_names, ['id'])
+        self.assertEqual(self.client.batches[0].schema['properties']['id']['type'], 'integer')
+        self.assertEqual(self.client.batches[1].schema['properties']['id']['type'], 'string')
 
-#         with DummyClient() as client:
-#             with self.assertRaises(Exception):
-#                 target_stitch.persist_lines(client, message_lines(inputs))
+    def test_versioned_stream(self):
+        lines = load_sample_lines('versioned_stream.json')
+        with self.target_stitch as target:
+            for line in lines:
+                target.handle_line(line)
 
-#     def test_versioned_stream(self):
-#         lines = load_sample_lines('versioned_stream.json')
-#         with DummyClient() as client:
-#             target_stitch.persist_lines(client, lines)
-#             messages = [(m['action'], m['table_version']) for m in client.messages]
-#             self.assertEqual(messages,
-#                              [('upsert', 1),
-#                               ('upsert', 1),
-#                               ('upsert', 1),
-#                               ('switch_view', 1),
-#                               ('upsert', 2),
-#                               ('upsert', 2),
-#                               ('switch_view', 2)])
-
-#     def test_decimal_handling(self):
-#         inputs = [
-#             {"type": "SCHEMA",
-#              "stream": "testing",
-#              "key_properties": ["a_float", "a_dec"],
-#              "schema": {
-#                  "properties": {
-#                      "a_float": {"type": ["null", "number"]},
-#                      "a_dec": {"type": ["null", "number"],
-#                                "multipleOf": 0.0001}}}},
-#             {"type": "RECORD",
-#              "stream": "testing",
-#              "record": {"a_float": 4.72, "a_dec": 4.72}},
-#             {"type": "RECORD",
-#              "stream": "testing",
-#              "record": {"a_float": 4.72, "a_dec": None}}]
-
-#         with DummyClient() as client:
-#             target_stitch.persist_lines(client, message_lines(inputs))
-#             self.assertEqual(str(sorted(client.messages[0]['data'].items())),
-#                              "[('a_dec', Decimal('4.72')), ('a_float', 4.72)]")
-#             self.assertEqual(str(sorted(client.messages[1]['data'].items())),
-#                              "[('a_dec', None), ('a_float', 4.72)]")
-
-
-# class TestEnsureMultipleOfIsDecimal(unittest.TestCase):
-#     def test_simple(self):
-#         schema = {'multipleOf': 0.01}
-#         target_stitch.ensure_multipleof_is_decimal(schema)
-#         self.assertEqual(
-#             schema,
-#             {'multipleOf': Decimal('0.01')})
-
-#     def test_simple_int(self):
-#         schema = {'multipleOf': 1}
-#         target_stitch.ensure_multipleof_is_decimal(schema)
-#         self.assertEqual(
-#             schema,
-#             {'multipleOf': Decimal('1')})
-
-#     def test_recursive_properties(self):
-#         schema = {
-#             'properties': {
-#                 'child': {
-#                     'multipleOf': 0.01
-#                 }
-#             }
-#         }
-#         target_stitch.ensure_multipleof_is_decimal(schema)
-#         self.assertEqual(
-#             schema,
-#             {
-#                 'properties': {
-#                     'child': {
-#                         'multipleOf': Decimal('0.01')
-#                     }
-#                 }
-#             }
-#         )
-
-#     def test_recursive_properties(self):
-#         schema = {
-#             'items': {
-#                 'multipleOf': 0.01
-#             }
-#         }
-#         target_stitch.ensure_multipleof_is_decimal(schema)
-#         self.assertEqual(
-#             schema,
-#             {
-#                 'items': {
-#                     'multipleOf': Decimal('0.01')
-#                 }
-#             })
-
-
-# class TestCorrectNumericTypes(unittest.TestCase):
-
-#     def test_simple_float(self):
-#         self.assertEqual(
-#             target_stitch.correct_numeric_types(
-#                 {'multipleOf': Decimal('0.01')},
-#                 1.23),
-#             Decimal('1.23'))
-
-#     def test_simple_int(self):
-#         self.assertEqual(
-#             type(target_stitch.correct_numeric_types(
-#                 {'multipleOf': Decimal('0.01')},
-#                 1)),
-#             Decimal)
-
-#     def test_simple_string(self):
-#         self.assertEqual(
-#             target_stitch.correct_numeric_types(
-#                 {'multipleOf': Decimal('0.01')},
-#                 '1.23'),
-#             '1.23')
-
-#     def test_recursive_properties_convert(self):
-#         schema = {
-#             'properties': {
-#                 'child': {
-#                     'multipleOf': 0.01
-#                 }
-#             }
-#         }
-#         record = {'child': 1.23}
-#         self.assertEqual(
-#             target_stitch.correct_numeric_types(schema, record),
-#             {'child': Decimal('1.23')})
-
-#     def test_recursive_properties_empty(self):
-#         schema = {
-#             'properties': {
-#                 'child': {
-#                     'multipleOf': 0.01
-#                 }
-#             }
-#         }
-#         record = 'hello'
-#         self.assertEqual(
-#             target_stitch.correct_numeric_types(schema, record),
-#             record)
-
-#     def test_recursive_items_convert(self):
-#         schema = {
-#             'items': {
-#                 'multipleOf': 0.01
-#             }
-#         }
-#         record = [1.23, 'hi', None]
-#         self.assertEqual(
-#             target_stitch.correct_numeric_types(schema, record),
-#             [Decimal('1.23'), 'hi', None])
-
-# class TestConvertDatetimeStringsToDatetimes(unittest.TestCase):
-
-#     input_datetime_string = '2017-02-27T00:00:00+04:00'
-#     expected_datetime = datetime.datetime(2017, 2, 27, 0, 0, tzinfo=dateutil.tz.tzoffset(None, 4 * 60 * 60))
-
-#     def test_simple(self):
-#         self.assertEqual(
-#             target_stitch.convert_datetime_strings_to_datetime(
-#                 {'format': 'date-time'},
-#                 self.input_datetime_string),
-#             self.expected_datetime)
-
-#     def test_simple_non_string(self):
-#         self.assertEqual(
-#             target_stitch.convert_datetime_strings_to_datetime(
-#                 {'format': 'date-time'},
-#                 Decimal('1.23')),
-#             Decimal('1.23'))
-
-#     def test_recursive_properties_convert(self):
-#         schema = {
-#             'properties': {
-#                 'child': {
-#                     'format': 'date-time'
-#                 }
-#             }
-#         }
-#         record = {'child': self.input_datetime_string}
-#         self.assertEqual(
-#             target_stitch.convert_datetime_strings_to_datetime(schema, record),
-#             {'child': self.expected_datetime})
+        batches = self.client.batches
+        self.assertEqual(2, len(batches))
+        self.assertEqual(1, batches[0].table_version)
+        self.assertEqual(2, batches[1].table_version)
