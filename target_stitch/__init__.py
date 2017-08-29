@@ -36,11 +36,6 @@ import urllib
 
 import pkg_resources
 
-import dateutil
-
-from jsonschema import ValidationError, Draft4Validator, FormatChecker
-from jsonschema.exceptions import SchemaError
-from stitchclient.client import Client
 import singer
 
 logger = singer.get_logger()
@@ -54,116 +49,105 @@ def number_to_decimal(x):
     return Decimal(str(x))
 
 
-class SchemaKey:
-    '''Constants representing keywords in JSON Schema'''
-    multipleOf = 'multipleOf'
-    properties = 'properties'
-    items = 'items'
-    format = 'format'
-    type = 'type'
+class Batch:
+
+    def __init__(self,
+                 table_name,
+                 bookmark_key=None,
+                 bookmark_value=None):
+        self.table_name = None
+        self.records = []
+
+    def add_record(self, record):
+        self.records.append({'data': record})
+
+    def serialize(self):
+        result = {}
+        result['table_name'] = self.table_name
+        if self.table_version:
+            result['table_version'] = self.table_version
+        if self.bookmark_key and self.bookmark_value:
+            result['bookmark'] = {
+                'key': self.bookmark_key,
+                'value': self.bookmark_value
+            }
+        result['records'] = self.records
+        result['extraction_started_at'] = self.extraction_started_at
+        return json.dumps(result)
 
 
-def ensure_multipleof_is_decimal(schema):
-    '''Ensure multipleOf (if exists) points to a Decimal.
+class TargetStitch(object):
 
-    Recursively walks the given schema (which must be dict), converting
-    every instance of the multipleOf keyword to a Decimal.
+    def __init__(self):
+        self.current_table = None
+        self.current_table_version = None
+        self.state = None
+        self.records = []
+        self.batch_size = 0
+        self.stream_meta = {}
 
-    This modifies the input schema and also returns it.
+    def clear(self):
+        self.records.clear()
+        self.batch_size = 0
+        self.current_table = None
+        self.current_table_version = None
 
-    '''
-    if SchemaKey.multipleOf in schema:
-        schema[SchemaKey.multipleOf] = number_to_decimal(schema[SchemaKey.multipleOf])
+    def flush_if_new_table(self, table_name, table_version):
+        if (table_name != current_table_name or
+            table_version != self.current_table_version):
+            self.flush()
+            self.current_table = table_name
+            self.current_table_version = table_version
 
-    if SchemaKey.properties in schema:
-        for k, v in schema[SchemaKey.properties].items():
-            ensure_multipleof_is_decimal(v)
+    def handle_line(self, line):
+        message = singer.parse_message(line)
 
-    if SchemaKey.items in schema:
-        ensure_multipleof_is_decimal(schema[SchemaKey.items])
+        # If we got a Schema, set the schema and key properties for
+        # this stream. Flush the batch, if there is one, under the
+        # assumption that subsequent messages will relate to the new
+        # schema.
+        if isinstance(message, singer.SchemaMessage):
+            self.stream_meta[message.stream] = StreamMeta(
+                message.schema, message.key_properties)
+            if self.current_table:
+                self.flush()
 
-    return schema
+        elif isinstance(message, singer.RecordMessage):
+            self.flush_if_new_table(message.table_name, message.version)
+            if self.batch_size + len(line) > self.max_batch_size:
+                self.flush()
+            self.records.append(message.record)
+            self.batch_size += len(line)
 
-def correct_numeric_types(schema, data):
-    '''Convert numeric values that should be Decimals into Decimals.
+        elif isinstance(message, singer.ActivateVersionMessage):
+            self.flush_if_new_table(message.table_name, message.version)
+            self.activate_table_version = True
 
-    Recursively walks the schema along with the data. For every node where
-    the schema is "number" and there is a "multipleOf" specified and the
-    value is a float or int, converts the value to a Decimal.
+        elif isinstance(message, singer.StateMessage):
+            self.state = message.state
 
-    This modifies the input data and also returns it.
-    '''
-    if schema is None:
-        return data
-
-    if SchemaKey.properties in schema and isinstance(data, dict):
-        for key, subschema in schema[SchemaKey.properties].items():
-            if key in data:
-                data[key] = correct_numeric_types(subschema, data[key])
-        return data
-
-    if SchemaKey.items in schema and isinstance(data, list):
-        subschema = schema[SchemaKey.items]
-        for i in range(len(data)):
-            data[i] = correct_numeric_types(subschema, data[i])
-        return data
-
-    if SchemaKey.multipleOf in schema and isinstance(data, (float, int)):
-        return number_to_decimal(data)
-
-    # True and False are instances of bool and also instances of int. I
-    # don't think it's appropriate to accept true and false JSON values as
-    # numbers though. So don't attempt to translate True and False to
-    # float. Let the validation step reject them later.
-    if schema.get(SchemaKey.type) == 'number' and isinstance(data, int) and not isinstance(data, bool):
-        return float(data)
-
-    return data
-
-def convert_datetime_strings_to_datetime(schema, data):
-    '''Convert string values that should be datetimes into datetimes.
-
-    Recursively walks the schema along with the data. For every node where
-    the schema is "string" and there the "format" is "date-time" and the
-    value is a string, converts the value to a datetime using
-    dateutil.parser.parse. We use that parser because it correctly handles
-    the date-time formats required by JSON Schema.
-
-    This modifies the input data and also returns it.
-    '''
-    if schema is None:
-        return data
-
-    if SchemaKey.properties in schema and isinstance(data, dict):
-        for key, subschema in schema[SchemaKey.properties].items():
-            if key in data:
-                data[key] = convert_datetime_strings_to_datetime(subschema, data[key])
-        return data
-
-    if SchemaKey.items in schema and isinstance(data, list):
-        subschema = schema[SchemaKey.items]
-        for i in range(len(data)):
-            data[i] = convert_datetime_strings_to_datetime(subschema, data[i])
-        return data
-
-    if SchemaKey.format in schema and schema[SchemaKey.format] == 'date-time' and isinstance(data, str):
-        return dateutil.parser.parse(data)
-
-    return data
+    def flush_to_gate(self):
+        msg = {}
+        msg['table_name'] = self.table_name
+        if self.table_version:
+            msg['table_version'] = self.table_version
+        if self.bookmark_key and self.bookmark_value:
+            msg['bookmark'] = {
+                'key': self.bookmark_key,
+                'value': self.bookmark_value
+            }
+        msg['records'] = self.records
+        msg['extraction_started_at'] = self.extraction_started_at
+        return json.dumps(msg)
 
 
-def write_last_state(states):
-    logger.info('Persisted batch of {} records to Stitch'.format(len(states)))
-    last_state = None
-    for state in reversed(states):
-        if state is not None:
-            last_state = state
-            break
-    if last_state:
+    def flush(self):
+
         line = json.dumps(state)
         logger.debug('Emitting state {}'.format(line))
         sys.stdout.write("{}\n".format(line))
         sys.stdout.flush()
+        logger.info('Persisted batch of {} records to Stitch'.format(len(states)))
 
 
 class TransitDumper(json.JSONEncoder):
@@ -179,7 +163,7 @@ class TransitDumper(json.JSONEncoder):
             return json.JSONEncoder.default(self, obj)
 
 
-class DryRunClient(object):
+class DryRunTarget(StitchTarget):
     """A client that doesn't actually persist to the Gate.
 
     Useful for testing.
@@ -220,108 +204,14 @@ class DryRunClient(object):
         self.flush()
 
 
-def parse_record(stream, record, schemas, validators):
-    '''Parses the data out of a record message.
-
-    Converts ints and floats to decimals for fields where the schema
-    indicates decimal precision via multipleOf.
-
-    Converts ints to floats for fields where the schema is number and
-    multipleOf is not specified.
-
-    Converts strings to datetimes for fields where the schema indicates
-    "format": "date-time".
-
-    Raises a ValueError if the resulting record does not pass validation.
-
-    '''
-    if stream in schemas:
-        schema = schemas[stream]
-    else:
-        schema = {}
-
-    # We need to correct numeric types (convert floats and ints to
-    # decimals, convert ints to floats) where appropriate before doing
-    # validation, because validation requires that the multipleOf value in
-    # the schema and the value in the record have the same type.
-    record = correct_numeric_types(schema, record)
-
-    validator = validators[stream]
-
-    try:
-        validator.validate(record)
-    except ValidationError as exc:
-        raise ValueError('Record({}) does not conform to schema. Please see logs for details.{}'.format(stream,record)) from exc
-
-    # We need to convert strings to datetimes after validation because
-    # validation operates on strings, not datetimes.
-    return convert_datetime_strings_to_datetime(schema, record)
-
 def persist_lines(stitchclient, lines):
     """Takes a client and a stream and persists all the records to the gate,
     printing the state to stdout after each batch."""
     state = None
-    schemas = {}
-    key_properties = {}
-    validators = {}
+    stream_meta = {}
+
     for line in lines:
-        message = singer.parse_message(line)
-
-        if isinstance(message, singer.RecordMessage):
-            if message.stream not in key_properties:
-                raise Exception("Missing schema for {}".format(message.stream))
-
-            stitch_message = {
-                'action': 'upsert',
-                'table_name': message.stream,
-                'key_names': key_properties[message.stream],
-                'sequence': int(time.time() * 1000),
-                'data': parse_record(message.stream, message.record, schemas, validators)
-            }
-            if message.version is not None:
-                stitch_message['table_version'] = message.version
-
-            stitchclient.push(stitch_message, state)
-            state = None
-
-        elif isinstance(message, singer.ActivateVersionMessage):
-            stitch_message = {
-                'action': 'switch_view',
-                'table_name': message.stream,
-                'table_version': message.version,
-                'sequence': int(time.time() * 1000)
-            }
-            stitchclient.push(stitch_message, state)
-            state = None
-
-        elif isinstance(message, singer.StateMessage):
-            state = message.value
-
-        elif isinstance(message, singer.SchemaMessage):
-
-            # Draft4Validator will fail unless both the multipleOf in the
-            # schema and the value in the data are Decimal. So we need to
-            # convert all instances of multipleOf in the schema to
-            # Decimal.
-            schemas[message.stream] = ensure_multipleof_is_decimal(message.schema)
-            key_properties[message.stream] = message.key_properties
-
-            # JSON schema will complain if 'required' is present but
-            # empty, so don't set it if there are no key properties
-            if message.key_properties:
-                schemas[message.stream]['required'] = message.key_properties
-
-            try:
-                Draft4Validator.check_schema(message.schema)
-            except SchemaError as schema_error:
-                raise Exception("Invalid json schema for stream {}: {}".format(message.stream, message.schema)) from schema_error
-
-            validators[message.stream] = Draft4Validator(message.schema, format_checker=FormatChecker())
-
-        else:
-            raise Exception("Unrecognized message {} parsed from line {}".format(message, line))
-
-    return state
+        target_stitch.handle_line(line)
 
 
 def stitch_client(args):
