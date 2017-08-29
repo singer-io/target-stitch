@@ -20,7 +20,7 @@ class DummyClient(target_stitch.GateClient):
 
     def send_batch(self, batch):
         self.batches.append(batch)
-        
+
 def message_lines(messages):
     return [json.dumps(m) for m in messages]
 
@@ -103,12 +103,12 @@ class TestTargetStitch(unittest.TestCase):
                 }
             }
         )
-        
+
         self.assertEqual(batch.key_names, ['id'])
-                         
+
 
     def test_persist_last_state_when_stream_ends_with_record(self):
-
+        self.target_stitch.max_batch_records = 3
         inputs = [
             schema,
             record(0), state(0), record(1), state(1), record(2),
@@ -128,11 +128,10 @@ class TestTargetStitch(unittest.TestCase):
             for line in message_lines(inputs):
                 target.handle_line(line)
 
-        batch = self.client.batches[0]
-        self.assertEqual(
-            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-            [r['record']['i'] for r in batch.records])
-        self.assertEqual('1\n4\n9\n', sys.stdout.getvalue())
+        expected = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [9, 10]]
+        got = [[r['data']['i'] for r in batch.records] for batch in self.client.batches]
+        self.assertEqual(got, expected)
+        self.assertEqual('1\n4\n9\n', self.out.getvalue())
 
 #     def test_persist_last_state_when_stream_ends_with_state(self):
 

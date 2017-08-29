@@ -72,7 +72,7 @@ class DryRunClient(GateClient):
                 json.dump(m, outfile)
                 outfile.write('\n')
 
-        
+
 class TargetStitch(object):
 
     def __init__(self, gate_client, state_writer):
@@ -98,11 +98,12 @@ class TargetStitch(object):
         self.batch = None
 
     def flush_state(self):
-        line = json.dumps(self.state)
-        logger.debug('Emitting state {}'.format(line))
-        self.state_writer.write("{}\n".format(line))
-        self.state_writer.flush()
-        self.state = None
+        if self.state:
+            line = json.dumps(self.state)
+            logger.debug('Emitting state {}'.format(line))
+            self.state_writer.write("{}\n".format(line))
+            self.state_writer.flush()
+            self.state = None
 
     def flush(self):
         if self.batch:
@@ -117,14 +118,16 @@ class TargetStitch(object):
                 return
             else:
                 self.flush()
+                self.ensure_batch(stream, version)
+
+    def ensure_batch(self, stream, version):
         stream_meta = self.stream_meta[stream]
         self.batch = Batch(stream, version, stream_meta.schema, stream_meta.key_properties)
-
 
     def handle_line(self, line):
         '''Takes a raw line from stdin and handles it, updating state and possibly
         flushing the batch to the Gate and the state to the output stream.'''
-        
+
         message = singer.parse_message(line)
 
         # If we got a Schema, set the schema and key properties for this
@@ -137,13 +140,17 @@ class TargetStitch(object):
 
         elif isinstance(message, singer.RecordMessage):
             self.flush_if_new_table(message.stream, message.version)
-            if (self.batch.size + len(line) > self.max_batch_bytes or
-                len(self.batch.records) >= self.max_batch_records):
+            if not self.batch:
+                self.ensure_batch(message.stream, message.version)
+            elif (self.batch.size + len(line) > self.max_batch_bytes):
                 self.flush()
+                self.ensure_batch(message.stream, message.version)
             self.batch.records.append({
                 'data': message.record,
-                'sequence': message.sequence})
+                'sequence': int(time.time() * 1000)})
             self.batch.size += len(line)
+            if len(self.batch.records) >= self.max_batch_records:
+                self.flush()
 
         elif isinstance(message, singer.ActivateVersionMessage):
             self.flush_if_new_table(message.stream, message.version)
