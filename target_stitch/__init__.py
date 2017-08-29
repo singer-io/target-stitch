@@ -1,30 +1,7 @@
 #!/usr/bin/env python3
 
-# Changes target-stitch makes to schema and record
-# ================================================
-#
-# We have to make several changes to both the schema and the record in
-# order to correctly transform datatypes from the JSON input to the
-# Transit output and in order to take advantage of JSON Schema validation.
-#
-# 1. We walk the schema and look for instances of `"multipleOf": x` and we
-# convert x to a Decimal. We do this because in the validation step below,
-# both multipleOf and the value need to be Decimal.
-#
-# 2. We walk each record along with its schema and look for cases where
-# the schema says `"multipleOf": x` and the value in the record is a
-# float or int.
-#
-# 3. We then validate the record against the schema using the jsonschema library.
-#
-# 4. After validation, we walk the record and the schema again looking for
-# nodes with type string and format date-time. We convert all such values
-# to datetime. We need to do this _after_ validation because validation
-# operates on strings, not datetime objects.
-
 import argparse
-from datetime import datetime
-from decimal import Decimal
+from collections import namedtuple
 import http.client
 import io
 import json
@@ -40,67 +17,78 @@ import singer
 
 logger = singer.get_logger()
 
+StreamMeta = namedtuple('StreamMeta', ['schema', 'key_properties'])
 
-def number_to_decimal(x):
-    '''Converts float or int to Decimal.'''
-
-    # Need to call str on it first because Decimal(int) will lose
-    # precision
-    return Decimal(str(x))
-
-
-class Batch:
-
-    def __init__(self,
-                 table_name,
-                 bookmark_key=None,
-                 bookmark_value=None):
-        self.table_name = None
+class Batch(object):
+    def __init__(self, table_name, table_version):
+        self.table_name = table_name
+        self.table_version = table_version
+        self.key_names = []
         self.records = []
+        self.size = 0
+        self.activate_version = False
 
-    def add_record(self, record):
-        self.records.append({'data': record})
 
-    def serialize(self):
-        result = {}
-        result['table_name'] = self.table_name
+class GateClient(object):
+    def __init__(self):
+        self.session = requests.Session()
+
+    def send_batch(self, batch):
+        msg = { }
+        msg['table_name'] = batch.table_name
         if self.table_version:
-            result['table_version'] = self.table_version
-        if self.bookmark_key and self.bookmark_value:
-            result['bookmark'] = {
-                'key': self.bookmark_key,
-                'value': self.bookmark_value
+            msg['table_version'] = batch.table_version
+        if self.bookmark_key and batch.bookmark_value:
+            msg['bookmark'] = {
+                'key': batch.bookmark_key,
+                'value': batch.bookmark_value
             }
-        result['records'] = self.records
-        result['extraction_started_at'] = self.extraction_started_at
-        return json.dumps(result)
-
+        msg['records'] = copy.copy(batch.records)
+        msg['extraction_started_at'] = batch.extraction_started_at
+        self.session.post(self.gate_url, msg)
 
 class TargetStitch(object):
 
-    def __init__(self):
-        self.current_table = None
-        self.current_table_version = None
+    def __init__(self, gate_client, state_writer):
+        self.batch = None
         self.state = None
-        self.records = []
-        self.batch_size = 0
         self.stream_meta = {}
+        self.gate_client = gate_client
+        self.state_writer = state_writer
+        self.max_batch_bytes = 4000000
+        self.max_batch_records = 20000
 
-    def clear(self):
-        self.records.clear()
-        self.batch_size = 0
-        self.current_table = None
-        self.current_table_version = None
+    def flush_to_gate(self):
+        self.gate_client.send_batch(self.batch)
+        self.batch = None
+
+    def flush_state(self):
+        line = json.dumps(self.state)
+        logger.debug('Emitting state {}'.format(line))
+        self.state_writer.write("{}\n".format(line))
+        self.state_writer.flush()
+        self.state = None
+
+    def flush(self):
+        if self.batch:
+            logger.info('Flushing batch of {} records'.format(len(self.batch.records)))
+            self.flush_to_gate()
+            self.flush_state()
 
     def flush_if_new_table(self, table_name, table_version):
-        if (table_name != current_table_name or
-            table_version != self.current_table_version):
-            self.flush()
-            self.current_table = table_name
-            self.current_table_version = table_version
+        if self.batch:
+            if (table_name == self.batch.table_name and
+                table_version == self.batch.table_version):
+                return
+            else:
+                self.flush()
+                self.batch = Batch(table_name, table_version)
+        else:
+            self.batch = Batch(table_name, table_version)
 
     def handle_line(self, line):
         message = singer.parse_message(line)
+        result = None
 
         # If we got a Schema, set the schema and key properties for
         # this stream. Flush the batch, if there is one, under the
@@ -109,93 +97,21 @@ class TargetStitch(object):
         if isinstance(message, singer.SchemaMessage):
             self.stream_meta[message.stream] = StreamMeta(
                 message.schema, message.key_properties)
-            if self.current_table:
-                self.flush()
+            self.flush()
 
         elif isinstance(message, singer.RecordMessage):
-            self.flush_if_new_table(message.table_name, message.version)
-            if self.batch_size + len(line) > self.max_batch_size:
+            self.flush_if_new_table(message.stream, message.version)
+            if self.batch.size + len(line) > self.max_batch_bytes:
                 self.flush()
-            self.records.append(message.record)
-            self.batch_size += len(line)
+            self.batch.records.append(message.record)
+            self.batch.size += len(line)
 
         elif isinstance(message, singer.ActivateVersionMessage):
-            self.flush_if_new_table(message.table_name, message.version)
-            self.activate_table_version = True
+            self.flush_if_new_table(message.stream, message.version)
+            self.batch.activate_version = True
 
         elif isinstance(message, singer.StateMessage):
-            self.state = message.state
-
-    def flush_to_gate(self):
-        msg = {}
-        msg['table_name'] = self.table_name
-        if self.table_version:
-            msg['table_version'] = self.table_version
-        if self.bookmark_key and self.bookmark_value:
-            msg['bookmark'] = {
-                'key': self.bookmark_key,
-                'value': self.bookmark_value
-            }
-        msg['records'] = self.records
-        msg['extraction_started_at'] = self.extraction_started_at
-        return json.dumps(msg)
-
-
-    def flush(self):
-
-        line = json.dumps(state)
-        logger.debug('Emitting state {}'.format(line))
-        sys.stdout.write("{}\n".format(line))
-        sys.stdout.flush()
-        logger.info('Persisted batch of {} records to Stitch'.format(len(states)))
-
-
-class TransitDumper(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, datetime):
-            return obj.isoformat()
-        if isinstance(obj, Decimal):
-            # wanted a simple yield str(o) in the next line,
-            # but that would mean a yield on the line with super(...),
-            # which wouldn't work (see my comment below), so...
-            return str(obj)
-        else:
-            return json.JSONEncoder.default(self, obj)
-
-
-class DryRunTarget(StitchTarget):
-    """A client that doesn't actually persist to the Gate.
-
-    Useful for testing.
-    """
-
-    def __init__(self, buffer_size=100):
-        self.pending_callback_args = []
-        self.buffer_size = buffer_size
-        self.pending_messages = []
-        self.output_file = '/tmp/stitch-target-out.json'
-        try:
-            os.remove(self.output_file)
-        except OSError:
-            pass
-
-    def flush(self):
-        logger.info("---- DRY RUN: NOTHING IS BEING PERSISTED TO STITCH ----")
-        write_last_state(self.pending_callback_args)
-        self.pending_callback_args = []
-        with open(self.output_file, 'a') as outfile:
-            for m in self.pending_messages:
-                logger.info("---- DRY RUN: WOULD HAVE SENT: %s %s", m.get('action'), m.get('table_name'))
-                json.dump(m, outfile, cls=TransitDumper)
-                outfile.write('\n')
-            self.pending_messages = []
-
-    def push(self, message, callback_arg=None):
-        self.pending_callback_args.append(callback_arg)
-        self.pending_messages.append(message)
-
-        if len(self.pending_callback_args) % self.buffer_size == 0:
-            self.flush()
+            self.state = message.value
 
     def __enter__(self):
         return self
@@ -204,14 +120,26 @@ class DryRunTarget(StitchTarget):
         self.flush()
 
 
-def persist_lines(stitchclient, lines):
-    """Takes a client and a stream and persists all the records to the gate,
-    printing the state to stdout after each batch."""
-    state = None
-    stream_meta = {}
+class DryRunClient(GateClient):
+    """A client that doesn't actually persist to the Gate.
 
-    for line in lines:
-        target_stitch.handle_line(line)
+    Useful for testing.
+    """
+
+    def __init__(self):
+        self.output_file = '/tmp/stitch-target-out.json'
+        try:
+            os.remove(self.output_file)
+        except OSError:
+            pass
+
+    def send_batch(self, batch):
+        logger.info("---- DRY RUN: NOTHING IS BEING PERSISTED TO STITCH ----")
+        with open(self.output_file, 'a') as outfile:
+            for m in batch.records:
+                logger.info("---- DRY RUN: WOULD HAVE SENT: %s", batch.table_name)
+                json.dump(m, outfile)
+                outfile.write('\n')
 
 
 def stitch_client(args):
@@ -247,9 +175,9 @@ def stitch_client(args):
         if 'stitch_url' in config:
             url = config['stitch_url']
             logger.debug("Persisting to Stitch Gate at {}".format(url))
-            return Client(client_id, token, callback_function=write_last_state, stitch_url=url)
+            return Client(client_id, token, stitch_url=url)
         else:
-            return Client(client_id, token, callback_function=write_last_state)
+            return Client(client_id, token)
 
 
 def collect():
@@ -270,7 +198,6 @@ def collect():
     except:
         logger.debug('Collection request failed')
 
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-c', '--config', help='Config file')
@@ -281,9 +208,11 @@ def main():
         parser.error("config file required if not in dry run mode")
 
     input = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
-    with stitch_client(args) as client:
-        state = persist_lines(client, input)
-    write_last_state([state])
+    client = stitch_client(args)
+    with TargetStitch(client, sys.stdout) as target_stitch:
+        for line in input:
+            target_stitch.handle_line(line)
+
     logger.info("Exiting normally")
 
 if __name__ == '__main__':
