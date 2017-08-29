@@ -51,7 +51,8 @@ class TestTargetStitch(unittest.TestCase):
 
     def setUp(self):
         self.client = DummyClient()
-        self.target_stitch = target_stitch.TargetStitch(self.client, sys.stderr)
+        self.out = io.StringIO()
+        self.target_stitch = target_stitch.TargetStitch(self.client, self.out)
 
     def test_persist_lines_fails_without_key_properties(self):
         recs = [
@@ -105,156 +106,33 @@ class TestTargetStitch(unittest.TestCase):
         
         self.assertEqual(batch.key_names, ['id'])
                          
-#     def test_persist_lines_fails_without_keys(self):
-#         inputs = [
-#             {"type": "SCHEMA",
-#              "stream": "users",
-#              "key_properties": ["id"],
-#              "schema": {
-#                  "properties": {
-#                      "id": {"type": "integer"},
-#                      "name": {"type": "string"}}}},
-#             {"type": "RECORD",
-#              "stream": "users",
-#              "record": {"name": "Joshua"}}]
 
-#         with DummyClient() as client:
-#             with self.assertRaises(Exception):
-#                 target_stitch.persist_lines(client, message_lines(inputs))
+    def test_persist_last_state_when_stream_ends_with_record(self):
 
-#     def test_persist_lines_converts_date_time(self):
-#         inputs = [
-#             {"type": "SCHEMA",
-#              "stream": "users",
-#              "key_properties": ["id"],
-#              "schema": {
-#                  "properties": {
-#                      "id": {"type": "integer"},
-#                      "t": {"type": "string", "format": "date-time"}}}},
-#             {"type": "RECORD",
-#              "stream": "users",
-#              "record": {"id": 1, "t": "2017-02-27T00:00:00+00:00"}}]
+        inputs = [
+            schema,
+            record(0), state(0), record(1), state(1), record(2),
+            # flush state 1
+            state(2), record(3), state(3), record(4), state(4), record(5),
+            # flush state 4
+            record(6),
+            record(7),
+            record(8),
+            # flush empty states
+            state(8),
+            record(9),
+            state(9),
+            record(10)]
 
-#         with DummyClient() as client:
-#             target_stitch.persist_lines(client, message_lines(inputs))
-#             dt = client.messages[0]['data']['t']
-#             self.assertEqual(datetime.datetime, type(dt))
+        with self.target_stitch as target:
+            for line in message_lines(inputs):
+                target.handle_line(line)
 
-#     def test_persist_lines_converts_decimal(self):
-#         inputs = [
-#             {"type": "SCHEMA",
-#              "stream": "users",
-#              "key_properties": ["id"],
-#              "schema": {
-#                  "properties": {
-#                      "id": {"type": "integer"},
-#                      "decimal": {"type": "number", "multipleOf": 0.01}}}},
-#             {"type": "RECORD",
-#              "stream": "users",
-#              "record": {"id": 1, "decimal": 1234.12}}]
-
-#         with DummyClient() as client:
-#             target_stitch.persist_lines(client, message_lines(inputs))
-#             dec = client.messages[0]['data']['decimal']
-#             self.assertEqual(decimal.Decimal, type(dec))
-
-#     def test_persist_lines_converts_deep_decimal(self):
-#         schema = {
-#             "type": "SCHEMA",
-#             "stream": "users",
-#             "key_properties": ["id"],
-#             "schema": {
-#                 "properties": {
-#                     "id": {"type": "integer"},
-#                     "child": {
-#                         "type": "object",
-#                         "properties": {
-#                             "decimal": {
-#                                 "type": "number",
-#                                 "multipleOf": 0.01
-#                             }
-#                         }
-#                     }
-#                 }
-#             }
-#         }
-#         record = {
-#             "type": "RECORD",
-#             "stream": "users",
-#             "record": {
-#                 "id": 1,
-#                 "child": {
-#                     "decimal": 1234.12
-#                 }
-#             }
-#         }
-
-#         with DummyClient() as client:
-#             target_stitch.persist_lines(client, message_lines([schema, record]))
-#             dec = client.messages[0]['data']['child']['decimal']
-#             self.assertEqual(decimal.Decimal, type(dec))
-
-
-#     def test_timezones_and_milliseconds(self):
-#         self.assertEqual(dateutil.parser.parse('2017-02-27T00:00:00+00:00'),
-#                          datetime.datetime(2017, 2, 27, 0, 0, tzinfo=dateutil.tz.tzutc()))
-
-#         # milliseconds are preserved
-#         self.assertEqual(dateutil.parser.parse('2017-02-27T00:00:00.001+00:00'),
-#                          datetime.datetime(2017, 2, 27, 0, 0, 0, 1000, tzinfo=dateutil.tz.tzutc()))
-
-#         # timezone is preserved
-#         four_hours_in_seconds = 4 * 60 * 60
-#         self.assertEqual(dateutil.parser.parse('2017-02-27T00:00:00+04:00'),
-#                          datetime.datetime(2017, 2, 27, 0, 0, tzinfo=dateutil.tz.tzoffset(None, four_hours_in_seconds)))
-
-#     def test_persist_lines_fails_if_doesnt_fit_schema(self):
-#         inputs = [
-#             {"type": "SCHEMA",
-#              "stream": "users",
-#              "key_properties": ["id"],
-#              "schema": {
-#                  "properties": {
-#                      "id": {"type": "integer"},
-#                      "t": {"type": "string", "format": "date-time"}}}},
-#             {"type": "RECORD",
-#              "stream": "users",
-#              "record": {"id": 1, "t": "foobar"}}]
-
-
-#         with DummyClient() as client:
-#             with self.assertRaises(ValueError):
-#                 target_stitch.persist_lines(client, message_lines(inputs))
-
-
-#     def test_persist_last_state_when_stream_ends_with_record(self):
-
-#         inputs = [
-#             schema,
-#             record(0), state(0), record(1), state(1), record(2),
-#             # flush state 1
-#             state(2), record(3), state(3), record(4), state(4), record(5),
-#             # flush state 4
-#             record(6),
-#             record(7),
-#             record(8),
-#             # flush empty states
-#             state(8),
-#             record(9),
-#             state(9),
-#             record(10)]
-
-#         buf = io.StringIO()
-#         with mock.patch('sys.stdout', buf):
-#             with DummyClient(buffer_size=3) as client:
-
-#                 final_state = target_stitch.persist_lines(client, message_lines(inputs))
-
-#                 self.assertEqual(
-#                     [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-#                     [m['data']['i'] for m in client.messages])
-#                 self.assertIsNone(final_state)
-#             self.assertEqual('1\n4\n9\n', sys.stdout.getvalue())
+        batch = self.client.batches[0]
+        self.assertEqual(
+            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+            [r['record']['i'] for r in batch.records])
+        self.assertEqual('1\n4\n9\n', sys.stdout.getvalue())
 
 #     def test_persist_last_state_when_stream_ends_with_state(self):
 

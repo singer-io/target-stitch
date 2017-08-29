@@ -23,11 +23,13 @@ class Batch(object):
     def __init__(self, table_name, table_version, schema, key_names):
         self.table_name = table_name
         self.table_version = table_version
+        self.activate_table_version = False
+        # TODO: extraction_started_at
+        # TODO: grab bookmarks from state
         self.schema = schema
         self.key_names = key_names
         self.records = []
         self.size = 0
-        self.activate_version = False
 
 
 class GateClient(object):
@@ -48,14 +50,46 @@ class GateClient(object):
         msg['extraction_started_at'] = batch.extraction_started_at
         self.session.post(self.gate_url, msg)
 
+
+class DryRunClient(GateClient):
+    """A client that doesn't actually persist to the Gate.
+
+    Useful for testing.
+    """
+
+    def __init__(self):
+        self.output_file = '/tmp/stitch-target-out.json'
+        try:
+            os.remove(self.output_file)
+        except OSError:
+            pass
+
+    def send_batch(self, batch):
+        logger.info("---- DRY RUN: NOTHING IS BEING PERSISTED TO STITCH ----")
+        with open(self.output_file, 'a') as outfile:
+            for m in batch.records:
+                logger.info("---- DRY RUN: WOULD HAVE SENT: %s", batch.table_name)
+                json.dump(m, outfile)
+                outfile.write('\n')
+
+        
 class TargetStitch(object):
 
     def __init__(self, gate_client, state_writer):
         self.batch = None
         self.state = None
+
+        # Mapping from stream name to {'schema': ..., 'key_names': ...}
         self.stream_meta = {}
+
+        # Instance of GateClient
         self.gate_client = gate_client
+
+        # Writer that we write state records to
         self.state_writer = state_writer
+
+        # Batch size limits. Stored as properties here so we can easily
+        # change for testing.
         self.max_batch_bytes = 4000000
         self.max_batch_records = 20000
 
@@ -88,13 +122,14 @@ class TargetStitch(object):
 
 
     def handle_line(self, line):
+        '''Takes a raw line from stdin and handles it, updating state and possibly
+        flushing the batch to the Gate and the state to the output stream.'''
+        
         message = singer.parse_message(line)
-        result = None
 
-        # If we got a Schema, set the schema and key properties for
-        # this stream. Flush the batch, if there is one, under the
-        # assumption that subsequent messages will relate to the new
-        # schema.
+        # If we got a Schema, set the schema and key properties for this
+        # stream. Flush the batch, if there is one, in case the schema is
+        # different.
         if isinstance(message, singer.SchemaMessage):
             self.stream_meta[message.stream] = StreamMeta(
                 message.schema, message.key_properties)
@@ -102,9 +137,12 @@ class TargetStitch(object):
 
         elif isinstance(message, singer.RecordMessage):
             self.flush_if_new_table(message.stream, message.version)
-            if self.batch.size + len(line) > self.max_batch_bytes:
+            if (self.batch.size + len(line) > self.max_batch_bytes or
+                len(self.batch.records) >= self.max_batch_records):
                 self.flush()
-            self.batch.records.append(message.record)
+            self.batch.records.append({
+                'data': message.record,
+                'sequence': message.sequence})
             self.batch.size += len(line)
 
         elif isinstance(message, singer.ActivateVersionMessage):
@@ -119,28 +157,6 @@ class TargetStitch(object):
 
     def __exit__(self, exception_type, exception_value, traceback):
         self.flush()
-
-
-class DryRunClient(GateClient):
-    """A client that doesn't actually persist to the Gate.
-
-    Useful for testing.
-    """
-
-    def __init__(self):
-        self.output_file = '/tmp/stitch-target-out.json'
-        try:
-            os.remove(self.output_file)
-        except OSError:
-            pass
-
-    def send_batch(self, batch):
-        logger.info("---- DRY RUN: NOTHING IS BEING PERSISTED TO STITCH ----")
-        with open(self.output_file, 'a') as outfile:
-            for m in batch.records:
-                logger.info("---- DRY RUN: WOULD HAVE SENT: %s", batch.table_name)
-                json.dump(m, outfile)
-                outfile.write('\n')
 
 
 def stitch_client(args):
@@ -198,6 +214,7 @@ def collect():
         conn.close()
     except:
         logger.debug('Collection request failed')
+
 
 def main():
     parser = argparse.ArgumentParser()
