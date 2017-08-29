@@ -133,35 +133,33 @@ class TestTargetStitch(unittest.TestCase):
         self.assertEqual(got, expected)
         self.assertEqual('1\n4\n9\n', self.out.getvalue())
 
-#     def test_persist_last_state_when_stream_ends_with_state(self):
+    def test_persist_last_state_when_stream_ends_with_state(self):
+        self.target_stitch.max_batch_records = 3
+        inputs = [
+            schema,
+            record(0), state(0), record(1), state(1), record(2),
+            # flush state 1
+            state(2), record(3), state(3), record(4), state(4), record(5),
+            # flush state 4
+            record(6),
+            record(7),
+            record(8),
+            # flush empty states
+            state(8),
+            record(9),
+            state(9),
+            record(10),
+            state(10)]
 
-#         inputs = [
-#             schema,
-#             record(0), state(0), record(1), state(1), record(2),
-#             # flush state 1
-#             state(2), record(3), state(3), record(4), state(4), record(5),
-#             # flush state 4
-#             record(6),
-#             record(7),
-#             record(8),
-#             # flush empty states
-#             state(8),
-#             record(9),
-#             state(9),
-#             record(10),
-#             state(10)]
+        with self.target_stitch as target:
+            for line in message_lines(inputs):
+                target.handle_line(line)
 
-#         buf = io.StringIO()
-#         with mock.patch('sys.stdout', buf):
-#             with DummyClient(buffer_size=3) as client:
 
-#                 final_state = target_stitch.persist_lines(client, message_lines(inputs))
-
-#                 self.assertEqual(
-#                     [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-#                     [m['data']['i'] for m in client.messages])
-#                 self.assertEqual(10, final_state)
-#             self.assertEqual('1\n4\n9\n', sys.stdout.getvalue())
+        expected = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [9, 10]]
+        got = [[r['data']['i'] for r in batch.records] for batch in self.client.batches]
+        self.assertEqual(got, expected)
+        self.assertEqual('1\n4\n10\n', self.out.getvalue())
 
 #     def test_persist_lines_updates_schema(self):
 #         inputs = [
