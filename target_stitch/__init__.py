@@ -20,10 +20,11 @@ logger = singer.get_logger()
 StreamMeta = namedtuple('StreamMeta', ['schema', 'key_properties'])
 
 class Batch(object):
-    def __init__(self, table_name, table_version):
+    def __init__(self, table_name, table_version, schema, key_names):
         self.table_name = table_name
         self.table_version = table_version
-        self.key_names = []
+        self.schema = schema
+        self.key_names = key_names
         self.records = []
         self.size = 0
         self.activate_version = False
@@ -75,16 +76,16 @@ class TargetStitch(object):
             self.flush_to_gate()
             self.flush_state()
 
-    def flush_if_new_table(self, table_name, table_version):
+    def flush_if_new_table(self, stream, version):
         if self.batch:
-            if (table_name == self.batch.table_name and
-                table_version == self.batch.table_version):
+            if (stream == self.batch.table_name and
+                version == self.batch.table_version):
                 return
             else:
                 self.flush()
-                self.batch = Batch(table_name, table_version)
-        else:
-            self.batch = Batch(table_name, table_version)
+        stream_meta = self.stream_meta[stream]
+        self.batch = Batch(stream, version, stream_meta.schema, stream_meta.key_properties)
+
 
     def handle_line(self, line):
         message = singer.parse_message(line)

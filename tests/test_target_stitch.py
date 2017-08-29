@@ -20,8 +20,7 @@ class DummyClient(target_stitch.GateClient):
 
     def send_batch(self, batch):
         self.batches.append(batch)
-
-
+        
 def message_lines(messages):
     return [json.dumps(m) for m in messages]
 
@@ -89,11 +88,23 @@ class TestTargetStitch(unittest.TestCase):
              "stream": "users",
              "record": {"id": 1, "name": "mike"}}]
 
-        with DummyClient() as client:
-            target_stitch.persist_lines(client, message_lines(inputs))
-            self.assertEqual(len(client.messages), 1)
-            self.assertEqual(client.messages[0]['key_names'], ['id'])
-
+        with self.target_stitch as target:
+            for line in message_lines(inputs):
+                target.handle_line(line)
+        self.assertEqual(len(self.client.batches), 1)
+        batch = self.client.batches[0]
+        self.assertEqual(
+            batch.schema,
+            {
+                "properties": {
+                    "id": {"type": "integer"},
+                    "name": {"type": "string"}
+                }
+            }
+        )
+        
+        self.assertEqual(batch.key_names, ['id'])
+                         
 #     def test_persist_lines_fails_without_keys(self):
 #         inputs = [
 #             {"type": "SCHEMA",
