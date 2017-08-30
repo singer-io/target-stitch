@@ -10,6 +10,8 @@ import sys
 import threading
 import time
 import urllib
+import requests
+import copy
 
 import pkg_resources
 
@@ -25,33 +27,47 @@ class Batch(object):
         self.table_version = table_version
         self.activate_table_version = False
         # TODO: extraction_started_at
+        self.extraction_started_at = None
         # TODO: grab bookmarks from state
+        self.bookmark_key = None
+        self.bookmark_value = None        
         self.schema = schema
         self.key_names = key_names
         self.records = []
         self.size = 0
 
 
-class GateClient(object):
-    def __init__(self):
+DEFAULT_STITCH_URL = 'https://api.stitchdata.com/v2/import/batch'
+        
+class StitchClient(object):
+    def __init__(self, token, stitch_url=DEFAULT_STITCH_URL):
         self.session = requests.Session()
+        self.token = token
+        self.stitch_url = stitch_url
+        
 
     def send_batch(self, batch):
         msg = { }
         msg['table_name'] = batch.table_name
-        if self.table_version:
+        if batch.table_version:
             msg['table_version'] = batch.table_version
-        if self.bookmark_key and batch.bookmark_value:
+        if batch.bookmark_key and batch.bookmark_value:
             msg['bookmark'] = {
                 'key': batch.bookmark_key,
                 'value': batch.bookmark_value
             }
+        if batch.schema:
+            msg['schema'] = batch.schema
         msg['records'] = copy.copy(batch.records)
         msg['extraction_started_at'] = batch.extraction_started_at
-        self.session.post(self.gate_url, msg)
+        headers = {
+            'Authorization': 'Bearer {}'.format(self.token),
+            'Content-Type': 'application/json'}
+        resp = self.session.post(self.stitch_url, headers=headers, json=msg)
+        resp.raise_for_status()
+        
 
-
-class DryRunClient(GateClient):
+class DryRunClient(StitchClient):
     """A client that doesn't actually persist to the Gate.
 
     Useful for testing.
@@ -82,7 +98,7 @@ class TargetStitch(object):
         # Mapping from stream name to {'schema': ..., 'key_names': ...}
         self.stream_meta = {}
 
-        # Instance of GateClient
+        # Instance of StitchClient
         self.gate_client = gate_client
 
         # Writer that we write state records to
@@ -181,11 +197,6 @@ def stitch_client(args):
 
         missing_fields = []
 
-        if 'client_id' in config:
-            client_id = config['client_id']
-        else:
-            missing_fields.append('client_id')
-
         if 'token' in config:
             token = config['token']
         else:
@@ -198,9 +209,9 @@ def stitch_client(args):
         if 'stitch_url' in config:
             url = config['stitch_url']
             logger.debug("Persisting to Stitch Gate at {}".format(url))
-            return GateClient(client_id, token, stitch_url=url)
+            return StitchClient(token, stitch_url=url)
         else:
-            return GateClient(client_id, token)
+            return StitchClient(token)
 
 
 def collect():
