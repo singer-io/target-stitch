@@ -207,7 +207,7 @@ def stitch_client(args):
                             .format(missing_fields))
 
         if 'stitch_url' in config:
-            url = config['stitch_url']
+            url = config['stitch_url'] + "?persist=true"
             logger.debug("Persisting to Stitch Gate at {}".format(url))
             return StitchClient(token, stitch_url=url)
         else:
