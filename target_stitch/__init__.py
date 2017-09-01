@@ -12,6 +12,7 @@ import time
 import urllib
 import requests
 import copy
+import gzip
 
 import pkg_resources
 
@@ -40,10 +41,11 @@ class Batch(object):
 DEFAULT_STITCH_URL = 'https://api.stitchdata.com/v2/import/batch'
         
 class StitchClient(object):
-    def __init__(self, token, stitch_url=DEFAULT_STITCH_URL):
+    def __init__(self, token, stitch_url=DEFAULT_STITCH_URL, gzip_requests=False):
         self.session = requests.Session()
         self.token = token
         self.stitch_url = stitch_url
+        self.gzip_requests = gzip_requests
         
 
     def send_batch(self, batch):
@@ -63,7 +65,16 @@ class StitchClient(object):
         headers = {
             'Authorization': 'Bearer {}'.format(self.token),
             'Content-Type': 'application/json'}
-        resp = self.session.post(self.stitch_url, headers=headers, json=msg)
+
+        if self.gzip_requests:
+            headers['Content-Encoding'] = 'gzip'
+            out = io.BytesIO()
+            with gzip.GzipFile(fileobj=out, mode="w") as f:
+                f.write(bytes(json.dumps(msg), 'utf8'))
+            body = out.getvalue()
+            resp = self.session.post(self.stitch_url, headers=headers, data=body)
+        else:
+            resp = self.session.post(self.stitch_url, headers=headers, json=msg)
         resp.raise_for_status()
         
 
@@ -206,12 +217,15 @@ def stitch_client(args):
             raise Exception('Configuration is missing required fields: {}'
                             .format(missing_fields))
 
+        kwargs = {}
         if 'stitch_url' in config:
-            url = config['stitch_url'] + "?persist=true"
-            logger.debug("Persisting to Stitch Gate at {}".format(url))
-            return StitchClient(token, stitch_url=url)
-        else:
-            return StitchClient(token)
+            logger.info("Persisting to Stitch at {}".format(config['stitch_url']))
+            kwargs['stitch_url'] = config['stitch_url']
+        if 'gzip_requests' in config:
+            logger.info('gzip requests: ' + str(config['gzip_requests']))
+            kwargs['gzip_requests'] = config['gzip_requests']
+
+        return StitchClient(token, **kwargs)
 
 
 def collect():
