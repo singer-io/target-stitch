@@ -26,7 +26,6 @@ class Batch(object):
     def __init__(self, table_name, table_version, schema, key_names):
         self.table_name = table_name
         self.table_version = table_version
-        self.activate_table_version = False
         # TODO: extraction_started_at
         self.extraction_started_at = None
         # TODO: grab bookmarks from state
@@ -165,22 +164,23 @@ class TargetStitch(object):
                 message.schema, message.key_properties)
             self.flush()
 
-        elif isinstance(message, singer.RecordMessage):
+        elif isinstance(message, (singer.RecordMessage, singer.ActivateVersionMessage)):
             self.flush_if_new_table(message.stream, message.version)
             if (self.batch.size + len(line) > self.max_batch_bytes):
                 self.flush()
                 self.ensure_batch(message.stream, message.version)
-            self.batch.records.append({
-                'data': message.record,
-                'sequence': int(time.time() * 1000)})
+
+            if isinstance(message, singer.RecordMessage):
+                self.batch.records.append({
+                    'action': 'upsert',
+                    'data': message.record,
+                    'sequence': int(time.time() * 1000)})
+            elif isinstance(message, singer.ActivateVersionMessage):
+                self.batch.records.append({
+                    'action': 'activate_version' })
             self.batch.size += len(line)
             if len(self.batch.records) >= self.max_batch_records:
                 self.flush()
-
-        elif isinstance(message, singer.ActivateVersionMessage):
-            self.flush_if_new_table(message.stream, message.version)
-            self.ensure_batch(message.stream, message.version)            
-            self.batch.activate_table_version = True
 
         elif isinstance(message, singer.StateMessage):
             self.state = message.value
