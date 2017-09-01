@@ -26,11 +26,8 @@ class Batch(object):
     def __init__(self, table_name, table_version, schema, key_names):
         self.table_name = table_name
         self.table_version = table_version
-        # TODO: extraction_started_at
-        self.extraction_started_at = None
-        # TODO: grab bookmarks from state
-        self.bookmark_key = None
-        self.bookmark_value = None        
+        # TODO: Add vintage to singer spec and change taps to emit it.
+        self.vintage = None
         self.schema = schema
         self.key_names = key_names
         self.records = []
@@ -52,15 +49,10 @@ class StitchClient(object):
         msg['table_name'] = batch.table_name
         if batch.table_version:
             msg['table_version'] = batch.table_version
-        if batch.bookmark_key and batch.bookmark_value:
-            msg['bookmark'] = {
-                'key': batch.bookmark_key,
-                'value': batch.bookmark_value
-            }
         if batch.schema:
             msg['schema'] = batch.schema
         msg['records'] = copy.copy(batch.records)
-        msg['extraction_started_at'] = batch.extraction_started_at
+        msg['vintage'] = batch.vintage
         headers = {
             'Authorization': 'Bearer {}'.format(self.token),
             'Content-Type': 'application/json'}
