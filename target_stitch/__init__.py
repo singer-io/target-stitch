@@ -13,7 +13,10 @@ import urllib
 import requests
 import copy
 import gzip
+from decimal import Decimal
 from datetime import datetime, timezone
+
+from jsonschema import ValidationError, Draft4Validator, FormatChecker
 
 import pkg_resources
 
@@ -44,34 +47,45 @@ class StitchHandler(object):
         self.token = token
         self.stitch_url = stitch_url
 
-    def send_batch(self, body):
+    def handle_batch(self, body):
         headers = {
             'Authorization': 'Bearer {}'.format(self.token),
             'Content-Type': 'application/json'}
+        logger.info("Sending batch with %d messages for table %s to %s", len(body['messages']), body['table_name'], self.stitch_url)
         resp = self.session.post(self.stitch_url, headers=headers, json=body)
         resp.raise_for_status()        
 
 
-class DryRunClient(StitchHandler):
-    """A client that doesn't actually persist to the Gate.
+class LoggingHandler(object):
 
-    Useful for testing.
-    """
+    def __init__(self, output_file):
+        self.output_file = output_file
 
-    def __init__(self):
-        self.output_file = '/tmp/stitch-target-out.json'
-        try:
-            os.remove(self.output_file)
-        except OSError:
-            pass
+    def handle_batch(self, body):
+        logger.info("Saving batch with %d messages for table %s to %s", len(body['messages']), body['table_name'], self.output_file.name)
+        json.dump(body, self.output_file, indent=2)
 
-    def send_batch(self, batch):
-        logger.info("---- DRY RUN: NOTHING IS BEING PERSISTED TO STITCH ----")
-        body = self._request_body(batch)
-        with open(self.output_file, 'a') as outfile:
-            logger.info("---- DRY RUN: Would have sent batch with %d messages for table %s", len(batch.messages), batch.table_name)
-            json.dump(body, outfile, indent=2)
 
+def float_to_decimal(x):
+    if isinstance(x, float):
+        return Decimal(str(x))
+    elif isinstance(x, list):
+        return [float_to_decimal(child) for child in x]
+    elif isinstance(x, dict):
+        return {k: float_to_decimal(v) for k, v in x.items()}
+    else:
+        return x
+
+class ValidatingHandler(object):
+
+    def handle_batch(self, body):
+        schema = float_to_decimal(body['schema'])
+        validator = Draft4Validator(schema, format_checker=FormatChecker())
+        for message in body['messages']:
+            if message['action'] == 'upsert':
+                data = float_to_decimal(message['data'])
+                validator.validate(data)
+        logger.info('Batch is valid')
 
 def request_body(batch):
     msg = { }
@@ -88,7 +102,7 @@ def request_body(batch):
 
 class TargetStitch(object):
 
-    def __init__(self, gate_client, state_writer):
+    def __init__(self, handlers, state_writer):
         self.batch = None
         self.state = None
 
@@ -96,7 +110,7 @@ class TargetStitch(object):
         self.stream_meta = {}
 
         # Instance of StitchHandler
-        self.gate_client = gate_client
+        self.handlers = handlers
 
         # Writer that we write state records to
         self.state_writer = state_writer
@@ -108,7 +122,8 @@ class TargetStitch(object):
 
     def flush_to_gate(self):
         body = request_body(self.batch)
-        self.gate_client.send_batch(body)
+        for handler in self.handlers:
+            handler.handle_batch(body)
         self.batch = None
 
     def flush_state(self):
@@ -181,10 +196,17 @@ class TargetStitch(object):
         self.flush()
 
 
-def stitch_client(args):
+def build_handlers(args):
     """Returns an instance of StitchHandler or DryRunClient"""
+
+    handlers = []
+    
+    if args.output_file:
+        handlers.append(LoggingHandler(args.output_file))
+
     if args.dry_run:
-        return DryRunClient()
+        handlers.append(ValidatingHandler())
+
     else:
         with open(args.config) as input:
             config = json.load(input)
@@ -210,11 +232,10 @@ def stitch_client(args):
         if 'stitch_url' in config:
             logger.info("Persisting to Stitch at {}".format(config['stitch_url']))
             kwargs['stitch_url'] = config['stitch_url']
-        if 'gzip_requests' in config:
-            logger.info('gzip requests: ' + str(config['gzip_requests']))
-            kwargs['gzip_requests'] = config['gzip_requests']
 
-        return StitchHandler(token, **kwargs)
+        handlers.append(StitchHandler(token, **kwargs))
+
+    return handlers
 
 
 def collect():
@@ -240,17 +261,19 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-c', '--config', help='Config file')
     parser.add_argument('-n', '--dry-run', help='Dry run - Do not push data to Stitch', action='store_true')
+    parser.add_argument('-o', '--output-file', help='Save requests to this output file', type=argparse.FileType('w'))
     args = parser.parse_args()
 
     if not args.dry_run and args.config is None:
         parser.error("config file required if not in dry run mode")
 
     input = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
-    client = stitch_client(args)
-    with TargetStitch(client, sys.stdout) as target_stitch:
+    handlers = build_handlers(args)
+
+    with TargetStitch(handlers, sys.stdout) as target_stitch:
         for line in input:
             target_stitch.handle_line(line)
-
+                
     logger.info("Exiting normally")
 
 if __name__ == '__main__':
