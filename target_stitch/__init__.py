@@ -44,9 +44,8 @@ class StitchClient(object):
         self.token = token
         self.stitch_url = stitch_url
         self.gzip_requests = gzip_requests
-        
 
-    def send_batch(self, batch):
+    def _request_body(self, batch):
         msg = { }
         msg['table_name'] = batch.table_name
         if batch.table_version:
@@ -55,20 +54,16 @@ class StitchClient(object):
             msg['schema'] = batch.schema
         msg['messages'] = copy.copy(batch.messages)
         msg['vintage'] = batch.vintage
+
+        return msg
+
+    def send_batch(self, batch):
         headers = {
             'Authorization': 'Bearer {}'.format(self.token),
             'Content-Type': 'application/json'}
-
-        if self.gzip_requests:
-            headers['Content-Encoding'] = 'gzip'
-            out = io.BytesIO()
-            with gzip.GzipFile(fileobj=out, mode="w") as f:
-                f.write(bytes(json.dumps(msg), 'utf8'))
-            body = out.getvalue()
-            resp = self.session.post(self.stitch_url, headers=headers, data=body)
-        else:
-            resp = self.session.post(self.stitch_url, headers=headers, json=msg)
-        resp.raise_for_status()
+        body = self._request_body(batch)
+        resp = self.session.post(self.stitch_url, headers=headers, json=body)
+        resp.raise_for_status()        
         
 
 class DryRunClient(StitchClient):
@@ -86,11 +81,11 @@ class DryRunClient(StitchClient):
 
     def send_batch(self, batch):
         logger.info("---- DRY RUN: NOTHING IS BEING PERSISTED TO STITCH ----")
+        body = self._request_body(batch)
         with open(self.output_file, 'a') as outfile:
-            for m in batch.messages:
-                logger.info("---- DRY RUN: WOULD HAVE SENT: %s", batch.table_name)
-                json.dump(m, outfile)
-                outfile.write('\n')
+            logger.info("---- DRY RUN: Would have sent batch with %d messages for table %s", len(batch.messages), batch.table_name)
+            json.dump(body, outfile, indent=2)
+
 
 
 class TargetStitch(object):
