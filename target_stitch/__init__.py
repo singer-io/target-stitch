@@ -96,6 +96,7 @@ def request_body(batch):
         msg['schema'] = batch.schema
     msg['messages'] = copy.copy(batch.messages)
     msg['vintage'] = batch.vintage
+    msg['key_names'] = batch.key_names
 
     return msg
 
