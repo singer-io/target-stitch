@@ -40,7 +40,7 @@ class Batch(object):
 
 
 DEFAULT_STITCH_URL = 'https://api.stitchdata.com/v2/import/batch'
-        
+
 class StitchHandler(object):
     def __init__(self, token, stitch_url=DEFAULT_STITCH_URL):
         self.session = requests.Session()
@@ -53,7 +53,7 @@ class StitchHandler(object):
             'Content-Type': 'application/json'}
         logger.info("Sending batch with %d messages for table %s to %s", len(body['messages']), body['table_name'], self.stitch_url)
         resp = self.session.post(self.stitch_url, headers=headers, json=body)
-        resp.raise_for_status()        
+        resp.raise_for_status()
 
 
 class LoggingHandler(object):
@@ -63,7 +63,7 @@ class LoggingHandler(object):
 
     def handle_batch(self, body):
         logger.info("Saving batch with %d messages for table %s to %s", len(body['messages']), body['table_name'], self.output_file.name)
-        json.dump(body, self.output_file, indent=2)
+        json.dump(body, self.output_file)
 
 
 def float_to_decimal(x):
@@ -201,7 +201,7 @@ def build_handlers(args):
     """Returns an instance of StitchHandler or DryRunClient"""
 
     handlers = []
-    
+
     if args.output_file:
         handlers.append(LoggingHandler(args.output_file))
 
@@ -274,7 +274,7 @@ def main():
     with TargetStitch(handlers, sys.stdout) as target_stitch:
         for line in input:
             target_stitch.handle_line(line)
-                
+
     logger.info("Exiting normally")
 
 if __name__ == '__main__':
