@@ -38,7 +38,7 @@ class Batch(object):
 
 DEFAULT_STITCH_URL = 'https://api.stitchdata.com/v2/import/batch'
         
-class StitchClient(object):
+class StitchHandler(object):
     def __init__(self, token, stitch_url=DEFAULT_STITCH_URL):
         self.session = requests.Session()
         self.token = token
@@ -52,7 +52,7 @@ class StitchClient(object):
         resp.raise_for_status()        
 
 
-class DryRunClient(StitchClient):
+class DryRunClient(StitchHandler):
     """A client that doesn't actually persist to the Gate.
 
     Useful for testing.
@@ -95,7 +95,7 @@ class TargetStitch(object):
         # Mapping from stream name to {'schema': ..., 'key_names': ...}
         self.stream_meta = {}
 
-        # Instance of StitchClient
+        # Instance of StitchHandler
         self.gate_client = gate_client
 
         # Writer that we write state records to
@@ -182,7 +182,7 @@ class TargetStitch(object):
 
 
 def stitch_client(args):
-    """Returns an instance of StitchClient or DryRunClient"""
+    """Returns an instance of StitchHandler or DryRunClient"""
     if args.dry_run:
         return DryRunClient()
     else:
@@ -214,7 +214,7 @@ def stitch_client(args):
             logger.info('gzip requests: ' + str(config['gzip_requests']))
             kwargs['gzip_requests'] = config['gzip_requests']
 
-        return StitchClient(token, **kwargs)
+        return StitchHandler(token, **kwargs)
 
 
 def collect():
