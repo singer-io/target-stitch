@@ -5,15 +5,12 @@ import io
 import mock
 import sys
 import datetime
-import dateutil
 import jsonschema
 import decimal
 from decimal import Decimal
 from jsonschema import ValidationError, Draft4Validator, validators, FormatChecker
-from strict_rfc3339 import rfc3339_to_timestamp
-from dateutil import tz
 
-class DummyClient(target_stitch.GateClient):
+class DummyClient(target_stitch.StitchClient):
 
     def __init__(self):
         self.batches = []
@@ -129,7 +126,7 @@ class TestTargetStitch(unittest.TestCase):
                 target.handle_line(line)
 
         expected = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [9, 10]]
-        got = [[r['data']['i'] for r in batch.records] for batch in self.client.batches]
+        got = [[r['data']['i'] for r in batch.messages] for batch in self.client.batches]
         self.assertEqual(got, expected)
         self.assertEqual('1\n4\n9\n', self.out.getvalue())
 
@@ -157,7 +154,7 @@ class TestTargetStitch(unittest.TestCase):
 
 
         expected = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [9, 10]]
-        got = [[r['data']['i'] for r in batch.records] for batch in self.client.batches]
+        got = [[r['data']['i'] for r in batch.messages] for batch in self.client.batches]
         self.assertEqual(got, expected)
         self.assertEqual('1\n4\n10\n', self.out.getvalue())
 
