@@ -39,32 +39,18 @@ class Batch(object):
 DEFAULT_STITCH_URL = 'https://api.stitchdata.com/v2/import/batch'
         
 class StitchClient(object):
-    def __init__(self, token, stitch_url=DEFAULT_STITCH_URL, gzip_requests=False):
+    def __init__(self, token, stitch_url=DEFAULT_STITCH_URL):
         self.session = requests.Session()
         self.token = token
         self.stitch_url = stitch_url
-        self.gzip_requests = gzip_requests
 
-    def _request_body(self, batch):
-        msg = { }
-        msg['table_name'] = batch.table_name
-        if batch.table_version:
-            msg['table_version'] = batch.table_version
-        if batch.schema:
-            msg['schema'] = batch.schema
-        msg['messages'] = copy.copy(batch.messages)
-        msg['vintage'] = batch.vintage
-
-        return msg
-
-    def send_batch(self, batch):
+    def send_batch(self, body):
         headers = {
             'Authorization': 'Bearer {}'.format(self.token),
             'Content-Type': 'application/json'}
-        body = self._request_body(batch)
         resp = self.session.post(self.stitch_url, headers=headers, json=body)
         resp.raise_for_status()        
-        
+
 
 class DryRunClient(StitchClient):
     """A client that doesn't actually persist to the Gate.
@@ -86,6 +72,18 @@ class DryRunClient(StitchClient):
             logger.info("---- DRY RUN: Would have sent batch with %d messages for table %s", len(batch.messages), batch.table_name)
             json.dump(body, outfile, indent=2)
 
+
+def request_body(batch):
+    msg = { }
+    msg['table_name'] = batch.table_name
+    if batch.table_version:
+        msg['table_version'] = batch.table_version
+    if batch.schema:
+        msg['schema'] = batch.schema
+    msg['messages'] = copy.copy(batch.messages)
+    msg['vintage'] = batch.vintage
+
+    return msg
 
 
 class TargetStitch(object):
@@ -109,7 +107,8 @@ class TargetStitch(object):
         self.max_batch_records = 20000
 
     def flush_to_gate(self):
-        self.gate_client.send_batch(self.batch)
+        body = request_body(self.batch)
+        self.gate_client.send_batch(body)
         self.batch = None
 
     def flush_state(self):
