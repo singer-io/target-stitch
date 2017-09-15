@@ -13,6 +13,7 @@ import urllib
 import requests
 import copy
 import gzip
+from datetime import datetime, timezone
 
 import pkg_resources
 
@@ -27,10 +28,11 @@ class Batch(object):
         self.table_name = table_name
         self.table_version = table_version
         # TODO: Add vintage to singer spec and change taps to emit it.
-        self.vintage = None
+        # TODO: Taps should emit the sequence number also
+        self.vintage = datetime.now(timezone.utc).isoformat()
         self.schema = schema
         self.key_names = key_names
-        self.records = []
+        self.messages = []
         self.size = 0
 
 
@@ -51,7 +53,7 @@ class StitchClient(object):
             msg['table_version'] = batch.table_version
         if batch.schema:
             msg['schema'] = batch.schema
-        msg['records'] = copy.copy(batch.records)
+        msg['messages'] = copy.copy(batch.messages)
         msg['vintage'] = batch.vintage
         headers = {
             'Authorization': 'Bearer {}'.format(self.token),
@@ -85,7 +87,7 @@ class DryRunClient(StitchClient):
     def send_batch(self, batch):
         logger.info("---- DRY RUN: NOTHING IS BEING PERSISTED TO STITCH ----")
         with open(self.output_file, 'a') as outfile:
-            for m in batch.records:
+            for m in batch.messages:
                 logger.info("---- DRY RUN: WOULD HAVE SENT: %s", batch.table_name)
                 json.dump(m, outfile)
                 outfile.write('\n')
@@ -125,7 +127,7 @@ class TargetStitch(object):
 
     def flush(self):
         if self.batch:
-            logger.info('Flushing batch of {} records'.format(len(self.batch.records)))
+            logger.info('Flushing batch of {} messages'.format(len(self.batch.messages)))
             self.flush_to_gate()
             self.flush_state()
 
@@ -163,15 +165,16 @@ class TargetStitch(object):
                 self.ensure_batch(message.stream, message.version)
 
             if isinstance(message, singer.RecordMessage):
-                self.batch.records.append({
+                self.batch.messages.append({
                     'action': 'upsert',
                     'data': message.record,
                     'sequence': int(time.time() * 1000)})
             elif isinstance(message, singer.ActivateVersionMessage):
-                self.batch.records.append({
-                    'action': 'activate_version' })
+                self.batch.messages.append({
+                    'action': 'activate_version',
+                    'sequence': int(time.time() * 1000)})
             self.batch.size += len(line)
-            if len(self.batch.records) >= self.max_batch_records:
+            if len(self.batch.messages) >= self.max_batch_records:
                 self.flush()
 
         elif isinstance(message, singer.StateMessage):
