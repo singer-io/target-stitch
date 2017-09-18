@@ -200,3 +200,21 @@ class TestTargetStitch(unittest.TestCase):
         self.assertEqual(2, len(batches))
         self.assertEqual(1, batches[0]['table_version'])
         self.assertEqual(2, batches[1]['table_version'])
+
+class TestFloatToDecimal(unittest.TestCase):
+
+    def test_scalar_float(self):
+        self.assertTrue(isinstance(target_stitch.float_to_decimal(1.2), Decimal))
+
+    def test_scalar_non_float(self):
+        self.assertTrue(isinstance(target_stitch.float_to_decimal('hi'), str))
+
+    def test_array(self):
+        result = target_stitch.float_to_decimal([1.2, 'hi'])
+        self.assertTrue(isinstance(result[0], Decimal))
+        self.assertTrue(isinstance(result[1], str))
+
+    def test_dict(self):
+        result = target_stitch.float_to_decimal({'float': 1.2, 'str': 'hi'})
+        self.assertTrue(isinstance(result['float'], Decimal))
+        self.assertTrue(isinstance(result['str'], str))
