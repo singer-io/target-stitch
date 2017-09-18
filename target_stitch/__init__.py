@@ -41,10 +41,11 @@ class Batch(object):
 DEFAULT_STITCH_URL = 'https://api.stitchdata.com/v2/import/batch'
 
 class StitchHandler(object):
-    def __init__(self, token, stitch_url=DEFAULT_STITCH_URL):
-        self.session = requests.Session()
+    def __init__(self, token, stitch_url):
         self.token = token
         self.stitch_url = stitch_url
+        self.session = requests.Session()
+        
 
     def handle_batch(self, body):
         headers = {
@@ -197,48 +198,6 @@ class TargetStitch(object):
         self.flush()
 
 
-def build_handlers(args):
-    """Returns an instance of StitchHandler or DryRunClient"""
-
-    handlers = []
-
-    if args.output_file:
-        handlers.append(LoggingHandler(args.output_file))
-
-    if args.dry_run:
-        handlers.append(ValidatingHandler())
-
-    else:
-        with open(args.config) as input:
-            config = json.load(input)
-
-        if not config.get('disable_collection', False):
-            logger.info('Sending version information to stitchdata.com. ' +
-                        'To disable sending anonymous usage data, set ' +
-                        'the config parameter "disable_collection" to true')
-            threading.Thread(target=collect).start()
-
-        missing_fields = []
-
-        if 'token' in config:
-            token = config['token']
-        else:
-            missing_fields.append('token')
-
-        if missing_fields:
-            raise Exception('Configuration is missing required fields: {}'
-                            .format(missing_fields))
-
-        kwargs = {}
-        if 'stitch_url' in config:
-            logger.info("Persisting to Stitch at {}".format(config['stitch_url']))
-            kwargs['stitch_url'] = config['stitch_url']
-
-        handlers.append(StitchHandler(token, **kwargs))
-
-    return handlers
-
-
 def collect():
     try:
         version = pkg_resources.get_distribution('target-stitch').version
@@ -260,17 +219,35 @@ def collect():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-c', '--config', help='Config file')
+    parser.add_argument('-c', '--config', help='Config file', type=argparse.FileType('r'))
     parser.add_argument('-n', '--dry-run', help='Dry run - Do not push data to Stitch', action='store_true')
     parser.add_argument('-o', '--output-file', help='Save requests to this output file', type=argparse.FileType('w'))
     args = parser.parse_args()
 
-    if not args.dry_run and args.config is None:
-        parser.error("config file required if not in dry run mode")
-
     input = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
-    handlers = build_handlers(args)
 
+    handlers = []
+    if args.output_file:
+        handlers.append(LoggingHandler(args.output_file))
+    if args.dry_run:
+        handlers.append(ValidatingHandler())
+    elif not args.config:
+        parser.error("config file required if not in dry run mode")
+    else:
+        config = json.load(args.config)
+        token = config.get('token')
+        stitch_url = config.get('stitch_url', DEFAULT_STITCH_URL)
+
+        if not token:
+            raise Exception('Configuration is missing required "token" field')
+        
+        if not config.get('disable_collection'):
+            logger.info('Sending version information to stitchdata.com. ' +
+                        'To disable sending anonymous usage data, set ' +
+                        'the config parameter "disable_collection" to true')
+            threading.Thread(target=collect).start()
+        handlers.append(StitchHandler(token=token, stitch_url=stitch_url))
+    
     with TargetStitch(handlers, sys.stdout) as target_stitch:
         for line in input:
             target_stitch.handle_line(line)
