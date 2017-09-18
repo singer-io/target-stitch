@@ -32,7 +32,6 @@ class Batch(object):
         self.table_version = table_version
         # TODO: Add vintage to singer spec and change taps to emit it.
         # TODO: Taps should emit the sequence number also
-        self.vintage = datetime.now(timezone.utc).isoformat()
         self.schema = schema
         self.key_names = key_names
         self.messages = []
@@ -96,7 +95,6 @@ def request_body(batch):
     if batch.schema:
         msg['schema'] = batch.schema
     msg['messages'] = copy.copy(batch.messages)
-    msg['vintage'] = batch.vintage
     msg['key_names'] = batch.key_names
 
     return msg
@@ -179,6 +177,7 @@ class TargetStitch(object):
                 self.batch.messages.append({
                     'action': 'upsert',
                     'data': message.record,
+                    'vintage': datetime.now(timezone.utc).isoformat(),
                     'sequence': int(time.time() * 1000)})
             elif isinstance(message, singer.ActivateVersionMessage):
                 self.batch.messages.append({
