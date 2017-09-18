@@ -64,6 +64,7 @@ class LoggingHandler(object):
     def handle_batch(self, body):
         logger.info("Saving batch with %d messages for table %s to %s", len(body['messages']), body['table_name'], self.output_file.name)
         json.dump(body, self.output_file)
+        self.output_file.write('\n')
 
 
 def float_to_decimal(x):
