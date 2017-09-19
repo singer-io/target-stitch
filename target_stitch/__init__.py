@@ -152,13 +152,6 @@ class TargetStitch(object):
         # change for testing.
         self.max_batch_records = 20000
 
-    def flush_state(self):
-        if self.state:
-            line = json.dumps(self.state)
-            logger.debug('Emitting state {}'.format(line))
-            self.state_writer.write("{}\n".format(line))
-            self.state_writer.flush()
-            self.state = None
 
     def flush(self):
         if self.messages:
@@ -166,18 +159,14 @@ class TargetStitch(object):
             stream_meta = self.stream_meta[self.messages[0].stream]
             for handler in self.handlers:
                 handler.handle_batch(self.messages, stream_meta.schema, stream_meta.key_properties)
-            self.flush_state()
             self.messages = []
 
-    def flush_if_new_table(self, message):
-        if self.messages:
-            if (message.stream == self.messages[0].stream and
-                message.version == self.messages[0].version):
-                return
-            else:
-                self.flush()
-
-        self.messages = []
+        if self.state:
+            line = json.dumps(self.state)
+            logger.debug('Emitting state {}'.format(line))
+            self.state_writer.write("{}\n".format(line))
+            self.state_writer.flush()
+            self.state = None            
 
     def handle_line(self, line):
         '''Takes a raw line from stdin and handles it, updating state and possibly
@@ -194,7 +183,10 @@ class TargetStitch(object):
                 message.schema, message.key_properties)
 
         elif isinstance(message, (singer.RecordMessage, singer.ActivateVersionMessage)):
-            self.flush_if_new_table(message)
+            if self.messages and (
+                    message.stream != self.messages[0].stream or
+                    message.version != self.messages[0].version):
+                self.flush()            
             self.messages.append(message)
             if len(self.messages) >= self.max_batch_records:
                 self.flush()
