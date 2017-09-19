@@ -250,10 +250,11 @@ class TestSerialize(unittest.TestCase):
         for body in request_bodies:
             loaded = json.loads(body)
             for message in loaded['messages']:
-                if message['action'] == 'upsert':
-                    colors.append(('upsert', message['data']['color']))
+                action = message['action']
+                if action == 'upsert':
+                    colors.append((action, message['data']['color']))
                 else:
-                    colors.append((message['action']))n
+                    colors.append((action))
         return colors
 
     def test_splits_batches(self):
@@ -277,7 +278,7 @@ class TestSerialize(unittest.TestCase):
             ('upsert', 'violet'),
             ('activate_version')]
 
-        self.assertEqual(self.colors, self.unpack_colors(self.serialize_with_limit(2000)))
-        self.assertEqual(self.colors, self.unpack_colors(self.serialize_with_limit(1000)))
-        self.assertEqual(self.colors, self.unpack_colors(self.serialize_with_limit(500)))
-        self.assertEqual(self.colors, self.unpack_colors(self.serialize_with_limit(300)))
+        self.assertEqual(expected, self.unpack_colors(self.serialize_with_limit(2000)))
+        self.assertEqual(expected, self.unpack_colors(self.serialize_with_limit(1000)))
+        self.assertEqual(expected, self.unpack_colors(self.serialize_with_limit(500)))
+        self.assertEqual(expected, self.unpack_colors(self.serialize_with_limit(300)))
