@@ -9,6 +9,8 @@ import jsonschema
 import decimal
 from decimal import Decimal
 from jsonschema import ValidationError, Draft4Validator, validators, FormatChecker
+from singer import RecordMessage
+
 
 class DummyClient(object):
 
@@ -221,3 +223,28 @@ class TestFloatToDecimal(unittest.TestCase):
         result = target_stitch.float_to_decimal({'float': 1.2, 'str': 'hi'})
         self.assertTrue(isinstance(result['float'], Decimal))
         self.assertTrue(isinstance(result['str'], str))
+
+class TestSerialize(unittest.TestCase):
+
+    def test_does_not_exceed_byte_limit(self):
+
+        schema = {
+            'type': 'object',
+            'properties': {
+                'id': {'type': 'integer'},
+                'color': {'type': 'string'}
+            }
+        }
+        key_names = ['id']
+
+        records = [{'id': i, 'color': color} for i, color in enumerate(['red', 'orange', 'yellow', 'green', 'blue', 'indigo', 'violet'])]
+
+        messages = [RecordMessage(stream='colors', record=r) for r in records]
+
+        self.assertEqual(1, len(target_stitch.serialize(messages, schema, key_names, 2000)))
+        self.assertEqual(2, len(target_stitch.serialize(messages, schema, key_names, 1000)))
+        self.assertEqual(4, len(target_stitch.serialize(messages, schema, key_names, 500)))
+        self.assertEqual(7, len(target_stitch.serialize(messages, schema, key_names, 300)))
+
+        with self.assertRaises(target_stitch.BatchTooLargeException):
+            target_stitch.serialize(messages, schema, key_names, 100)

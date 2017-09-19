@@ -30,6 +30,9 @@ MAX_BATCH_BYTES = 6000
 
 DEFAULT_STITCH_URL = 'https://api.stitchdata.com/v2/import/batch'
 
+class BatchTooLargeException(Exception):
+    pass
+
 class StitchHandler(object):
     def __init__(self, token, stitch_url, max_batch_bytes):
         self.token = token
@@ -45,10 +48,9 @@ class StitchHandler(object):
 
         logger.info("Sending batch with %d messages for table %s to %s", len(messages), messages[0].stream, self.stitch_url)
         bodies = serialize(messages, schema, key_names, self.max_batch_bytes)
-        logger.info("Serialized as %d requests", len(bodies))
-        
+
         for i, body in enumerate(bodies):
-            logger.info("Batch %d is %d bytes", i, len(body))
+            logger.info("Request body %d is %d bytes", i, len(body))
             resp = self.session.post(self.stitch_url, headers=headers, data=body)
             if resp.status_code // 100 == 2:
                 logger.info('Ok')
@@ -66,7 +68,7 @@ class LoggingHandler(object):
         logger.info("Saving batch with %d messages for table %s to %s",
                     len(messages), messages[0].stream, self.output_file.name)
         for i, body in enumerate(serialize(messages, schema, key_names, self.max_batch_bytes)):
-            logger.info("  Batch %d is %d bytes", i, len(body))            
+            logger.info("  Request body %d is %d bytes", i, len(body))
             json.dump(body, self.output_file)
             self.output_file.write('\n')
 
@@ -92,7 +94,7 @@ class ValidatingHandler(object):
                 validator.validate(data)
         logger.info('Batch is valid')
 
-        
+
 def serialize(messages, schema, key_names, max_bytes):
 
     serialized_messages = []
@@ -107,7 +109,7 @@ def serialize(messages, schema, key_names, max_bytes):
             serialized_messages.append({
                 'action': 'activate_version',
                 'sequence': int(time.time() * 1000)})
-    
+
     body = {
         'table_name': messages[0].stream,
         'schema': schema,
@@ -116,16 +118,16 @@ def serialize(messages, schema, key_names, max_bytes):
     }
     if messages[0].version is not None:
         body['table_version'] = messages[0].version
-    
+
     serialized = json.dumps(body)
     logger.info('Serialized %d messages into %d bytes', len(messages), len(serialized))
-    
+
     if len(serialized) < max_bytes:
         return [serialized]
 
     n = len(messages)
     if n <= 1:
-        raise Exception("A single record is larger than batch size limit of %d")
+        raise BatchTooLargeException("A single record is larger than batch size limit of %d")
 
     pivot = n // 2
     l_half = messages[:pivot]
@@ -166,7 +168,7 @@ class TargetStitch(object):
             logger.debug('Emitting state {}'.format(line))
             self.state_writer.write("{}\n".format(line))
             self.state_writer.flush()
-            self.state = None            
+            self.state = None
 
     def handle_line(self, line):
         '''Takes a raw line from stdin and handles it, updating state and possibly
@@ -186,7 +188,7 @@ class TargetStitch(object):
             if self.messages and (
                     message.stream != self.messages[0].stream or
                     message.version != self.messages[0].version):
-                self.flush()            
+                self.flush()
             self.messages.append(message)
             if len(self.messages) >= self.max_batch_records:
                 self.flush()
@@ -243,14 +245,14 @@ def main():
 
         if not token:
             raise Exception('Configuration is missing required "token" field')
-        
+
         if not config.get('disable_collection'):
             logger.info('Sending version information to stitchdata.com. ' +
                         'To disable sending anonymous usage data, set ' +
                         'the config parameter "disable_collection" to true')
             threading.Thread(target=collect).start()
         handlers.append(StitchHandler(token=token, stitch_url=stitch_url, max_batch_bytes=MAX_BATCH_BYTES))
-    
+
     with TargetStitch(handlers, sys.stdout) as target_stitch:
         for line in input:
             target_stitch.handle_line(line)
