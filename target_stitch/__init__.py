@@ -103,9 +103,6 @@ class ValidatingHandler(object):
                 validator.validate(data)
         logger.info('Batch is valid')
 
-def base_message(batch, messages):
-
-    return result
         
 def serialize(batch, messages, max_bytes):
     msg = {
@@ -152,11 +149,6 @@ class TargetStitch(object):
         # change for testing.
         self.max_batch_records = 20000
 
-    def flush_to_gate(self):
-        for handler in self.handlers:
-            handler.handle_batch(self.batch)
-        self.batch = None
-
     def flush_state(self):
         if self.state:
             line = json.dumps(self.state)
@@ -168,8 +160,10 @@ class TargetStitch(object):
     def flush(self):
         if self.batch:
             logger.info('Flushing batch of {} messages'.format(len(self.batch.messages)))
-            self.flush_to_gate()
+            for handler in self.handlers:
+                handler.handle_batch(self.batch)
             self.flush_state()
+            self.batch = None
 
     def flush_if_new_table(self, stream, version):
         if self.batch:
@@ -178,9 +172,7 @@ class TargetStitch(object):
                 return
             else:
                 self.flush()
-        self.ensure_batch(stream, version)
 
-    def ensure_batch(self, stream, version):
         stream_meta = self.stream_meta[stream]
         self.batch = Batch(stream, version, stream_meta.schema, stream_meta.key_properties)
 
