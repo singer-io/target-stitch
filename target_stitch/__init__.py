@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 
+'''
+Target for Stitch API.
+'''
+
 import argparse
 import copy
 import gzip
@@ -46,7 +50,13 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
         self.max_batch_bytes = max_batch_bytes
 
     def handle_batch(self, messages, schema, key_names):
+        '''Handle messages by sending them to Stitch.
 
+        If the serialized form of the messages is too large to fit into a
+        single request this will break them up into multiple smaller
+        requests.
+
+        '''
         headers = {
             'Authorization': 'Bearer {}'.format(self.token),
             'Content-Type': 'application/json'}
@@ -66,12 +76,19 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
 
 
 class LoggingHandler(object):  # pylint: disable=too-few-public-methods
-
+    '''Logs records to a local output file.'''
     def __init__(self, output_file, max_batch_bytes):
         self.output_file = output_file
         self.max_batch_bytes = max_batch_bytes
 
     def handle_batch(self, messages, schema, key_names):
+        '''Handles a batch of messages by saving them to a local output file.
+
+        Serializes records in the same way StitchHandler does, so the
+        output file should contain the exact request bodies that we would
+        send to Stitch.
+
+        '''
         LOGGER.info("Saving batch with %d messages for table %s to %s",
                     len(messages), messages[0].stream, self.output_file.name)
         for i, body in enumerate(serialize(messages, schema, key_names, self.max_batch_bytes)):
@@ -81,6 +98,8 @@ class LoggingHandler(object):  # pylint: disable=too-few-public-methods
 
 
 def float_to_decimal(value):
+    '''Walk the given data structure and turn all instances of float into
+    double.'''
     if isinstance(value, float):
         return Decimal(str(value))
     if isinstance(value, list):
@@ -90,8 +109,10 @@ def float_to_decimal(value):
     return value
 
 class ValidatingHandler(object): # pylint: disable=too-few-public-methods
+    '''Validates input messages against their schema.'''
 
     def handle_batch(self, messages, schema, key_names): # pylint: disable=no-self-use
+        '''Handles messages by validating them against schema.'''
         schema = float_to_decimal(schema)
         validator = Draft4Validator(schema, format_checker=FormatChecker())
         for i, message in enumerate(messages):
@@ -107,7 +128,13 @@ class ValidatingHandler(object): # pylint: disable=too-few-public-methods
 
 
 def serialize(messages, schema, key_names, max_bytes):
+    '''Produces request bodies for Stitch.
 
+    Builds a request body consisting of all the messages. Serializes it as
+    JSON. If the result exceeds the request size limit, splits the batch
+    in half and recurs.
+
+    '''
     serialized_messages = []
     for message in messages:
         if isinstance(message, singer.RecordMessage):
@@ -146,6 +173,11 @@ def serialize(messages, schema, key_names, max_bytes):
 
 
 class TargetStitch(object):
+    '''Encapsulates most of the logic of target-stitch.
+
+    Useful for unit testing.
+
+    '''
 
     def __init__(self, handlers, state_writer):
         self.messages = []
@@ -166,6 +198,8 @@ class TargetStitch(object):
 
 
     def flush(self):
+        '''Send all the buffered messages to Stitch.'''
+
         if self.messages:
             LOGGER.info('Flushing batch of %d messages', len(self.messages))
             stream_meta = self.stream_meta[self.messages[0].stream]
@@ -181,8 +215,12 @@ class TargetStitch(object):
             self.state = None
 
     def handle_line(self, line):
+
         '''Takes a raw line from stdin and handles it, updating state and possibly
-        flushing the batch to the Gate and the state to the output stream.'''
+        flushing the batch to the Gate and the state to the output
+        stream.
+
+        '''
 
         message = singer.parse_message(line)
 
@@ -214,6 +252,8 @@ class TargetStitch(object):
 
 
 def collect():
+    '''Send usage info to Stitch.'''
+
     try:
         version = pkg_resources.get_distribution('target-stitch').version
         conn = http.client.HTTPSConnection('collector.stitchdata.com', timeout=10)
@@ -233,6 +273,7 @@ def collect():
 
 
 def main():
+    '''Main entry point'''
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '-c', '--config',
