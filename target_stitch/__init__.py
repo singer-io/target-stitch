@@ -26,6 +26,8 @@ logger = singer.get_logger()
 
 StreamMeta = namedtuple('StreamMeta', ['schema', 'key_properties'])
 
+MAX_BATCH_BYTES = 6000
+
 class Batch(object):
     def __init__(self, table_name, table_version, schema, key_names):
         self.table_name = table_name
@@ -35,17 +37,16 @@ class Batch(object):
         self.schema = schema
         self.key_names = key_names
         self.messages = []
-        self.size = 0
 
 
 DEFAULT_STITCH_URL = 'https://api.stitchdata.com/v2/import/batch'
 
 class StitchHandler(object):
-    def __init__(self, token, stitch_url):
+    def __init__(self, token, stitch_url, max_batch_bytes):
         self.token = token
         self.stitch_url = stitch_url
         self.session = requests.Session()
-        
+        self.max_batch_bytes = max_batch_bytes
 
     def handle_batch(self, batch):
 
@@ -55,7 +56,7 @@ class StitchHandler(object):
 
 
         logger.info("Sending batch with %d messages for table %s to %s", len(batch.messages), batch.table_name, self.stitch_url)
-        bodies = serialize(batch)
+        bodies = serialize(batch, batch.messages, self.max_batch_bytes)
         logger.info("Serialized as %d requests", len(bodies))
         
         for i, body in enumerate(bodies):
@@ -102,17 +103,34 @@ class ValidatingHandler(object):
                 validator.validate(data)
         logger.info('Batch is valid')
 
-def serialize(batch):
-    msg = { }
-    msg['table_name'] = batch.table_name
-    if batch.table_version:
-        msg['table_version'] = batch.table_version
-    if batch.schema:
-        msg['schema'] = batch.schema
-    msg['messages'] = copy.copy(batch.messages)
-    msg['key_names'] = batch.key_names
+def base_message(batch, messages):
 
-    return [json.dumps(msg)]
+    return result
+        
+def serialize(batch, messages, max_bytes):
+    msg = {
+        'table_name': batch.table_name,
+        'schema': batch.schema,
+        'key_names': batch.key_names,
+        'messages': messages
+    }
+    if batch.table_version is not None:
+        msg['table_version'] = batch.table_version
+    
+    serialized = json.dumps(msg)
+    logger.info('Serialized %d messages into %d bytes', len(messages), len(serialized))
+    
+    if len(serialized) < max_bytes:
+        return [serialized]
+
+    n = len(messages)
+    if n <= 1:
+        raise Exception("A single record is larger than batch size limit of %d")
+
+    pivot = n // 2
+    l_half = messages[:pivot]
+    r_half = messages[pivot:]
+    return serialize(batch, l_half, max_bytes) + serialize(batch, r_half, max_bytes)
 
 
 class TargetStitch(object):
@@ -132,7 +150,6 @@ class TargetStitch(object):
 
         # Batch size limits. Stored as properties here so we can easily
         # change for testing.
-        self.max_batch_bytes = 4000000
         self.max_batch_records = 20000
 
     def flush_to_gate(self):
@@ -183,9 +200,6 @@ class TargetStitch(object):
 
         elif isinstance(message, (singer.RecordMessage, singer.ActivateVersionMessage)):
             self.flush_if_new_table(message.stream, message.version)
-            if (self.batch.size + len(line) > self.max_batch_bytes):
-                self.flush()
-                self.ensure_batch(message.stream, message.version)
 
             if isinstance(message, singer.RecordMessage):
                 self.batch.messages.append({
@@ -197,7 +211,7 @@ class TargetStitch(object):
                 self.batch.messages.append({
                     'action': 'activate_version',
                     'sequence': int(time.time() * 1000)})
-            self.batch.size += len(line)
+
             if len(self.batch.messages) >= self.max_batch_records:
                 self.flush()
 
@@ -259,7 +273,7 @@ def main():
                         'To disable sending anonymous usage data, set ' +
                         'the config parameter "disable_collection" to true')
             threading.Thread(target=collect).start()
-        handlers.append(StitchHandler(token=token, stitch_url=stitch_url))
+        handlers.append(StitchHandler(token=token, stitch_url=stitch_url, max_batch_bytes=MAX_BATCH_BYTES))
     
     with TargetStitch(handlers, sys.stdout) as target_stitch:
         for line in input:
