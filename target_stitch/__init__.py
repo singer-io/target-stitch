@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 
 import argparse
-from collections import namedtuple
+import copy
+import gzip
 import http.client
 import io
 import json
@@ -10,17 +11,16 @@ import sys
 import threading
 import time
 import urllib
-import requests
-import copy
-import gzip
-from decimal import Decimal
-from datetime import datetime, timezone
 
-from jsonschema import ValidationError, Draft4Validator, FormatChecker
+from collections import namedtuple
+from datetime import datetime, timezone
+from decimal import Decimal
 
 import pkg_resources
-
+import requests
 import singer
+
+from jsonschema import ValidationError, Draft4Validator, FormatChecker
 
 logger = singer.get_logger()
 
@@ -36,9 +36,9 @@ class BatchTooLargeException(Exception):
     create a batch with even one record.'''
     pass
 
-class StitchHandler(object):
+class StitchHandler(object): # pylint: disable=too-few-public-methods
     '''Sends messages to Stitch.'''
-    
+
     def __init__(self, token, stitch_url, max_batch_bytes):
         self.token = token
         self.stitch_url = stitch_url
@@ -64,7 +64,7 @@ class StitchHandler(object):
                 raise Exception(message)
 
 
-class LoggingHandler(object):
+class LoggingHandler(object):  # pylint: disable=too-few-public-methods
 
     def __init__(self, output_file, max_batch_bytes):
         self.output_file = output_file
@@ -82,22 +82,24 @@ class LoggingHandler(object):
 def float_to_decimal(x):
     if isinstance(x, float):
         return Decimal(str(x))
-    elif isinstance(x, list):
+    if isinstance(x, list):
         return [float_to_decimal(child) for child in x]
-    elif isinstance(x, dict):
+    if isinstance(x, dict):
         return {k: float_to_decimal(v) for k, v in x.items()}
-    else:
-        return x
+    return x
 
-class ValidatingHandler(object):
+class ValidatingHandler(object): # pylint: disable=too-few-public-methods
 
-    def handle_batch(self, messages, schema, key_names):
+    def handle_batch(self, messages, schema, key_names): # pylint: disable=no-self-use
         schema = float_to_decimal(schema)
         validator = Draft4Validator(schema, format_checker=FormatChecker())
-        for message in messages:
+        for i, message in enumerate(messages):
             if isinstance(message, singer.RecordMessage):
                 data = float_to_decimal(message.record)
                 validator.validate(data)
+                for k in key_names:
+                    if k not in data:
+                        raise Exception('Message {} is missing key property {}'.format(i, k))
         logger.info('Batch is valid')
 
 
@@ -163,7 +165,7 @@ class TargetStitch(object):
 
     def flush(self):
         if self.messages:
-            logger.info('Flushing batch of {} messages'.format(len(self.messages)))
+            logger.info('Flushing batch of %d messages', len(self.messages))
             stream_meta = self.stream_meta[self.messages[0].stream]
             for handler in self.handlers:
                 handler.handle_batch(self.messages, stream_meta.schema, stream_meta.key_properties)
@@ -171,7 +173,7 @@ class TargetStitch(object):
 
         if self.state:
             line = json.dumps(self.state)
-            logger.debug('Emitting state {}'.format(line))
+            logger.debug('Emitting state %s', line)
             self.state_writer.write("{}\n".format(line))
             self.state_writer.flush()
             self.state = None
@@ -222,9 +224,9 @@ def collect():
             'se_la': version,
         }
         conn.request('GET', '/i?' + urllib.parse.urlencode(params))
-        response = conn.getresponse()
+        conn.getresponse()
         conn.close()
-    except:
+    except: # pylint: disable=bare-except
         logger.debug('Collection request failed')
 
 
@@ -235,7 +237,7 @@ def main():
     parser.add_argument('-o', '--output-file', help='Save requests to this output file', type=argparse.FileType('w'))
     args = parser.parse_args()
 
-    input = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
+    stdin = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
 
     handlers = []
     if args.output_file:
@@ -260,7 +262,7 @@ def main():
         handlers.append(StitchHandler(token=token, stitch_url=stitch_url, max_batch_bytes=MAX_BATCH_BYTES))
 
     with TargetStitch(handlers, sys.stdout) as target_stitch:
-        for line in input:
+        for line in stdin:
             target_stitch.handle_line(line)
 
     logger.info("Exiting normally")
