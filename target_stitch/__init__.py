@@ -1,30 +1,12 @@
 #!/usr/bin/env python3
 
-# Changes target-stitch makes to schema and record
-# ================================================
-#
-# We have to make several changes to both the schema and the record in
-# order to correctly transform datatypes from the JSON input to the
-# Transit output and in order to take advantage of JSON Schema validation.
-#
-# 1. We walk the schema and look for instances of `"multipleOf": x` and we
-# convert x to a Decimal. We do this because in the validation step below,
-# both multipleOf and the value need to be Decimal.
-#
-# 2. We walk each record along with its schema and look for cases where
-# the schema says `"multipleOf": x` and the value in the record is a
-# float or int.
-#
-# 3. We then validate the record against the schema using the jsonschema library.
-#
-# 4. After validation, we walk the record and the schema again looking for
-# nodes with type string and format date-time. We convert all such values
-# to datetime. We need to do this _after_ validation because validation
-# operates on strings, not datetime objects.
+'''
+Target for Stitch API.
+'''
 
 import argparse
-from datetime import datetime
-from decimal import Decimal
+import copy
+import gzip
 import http.client
 import io
 import json
@@ -34,184 +16,233 @@ import threading
 import time
 import urllib
 
+from collections import namedtuple
+from datetime import datetime, timezone
+from decimal import Decimal
+
 import pkg_resources
-
-import dateutil
-
-from jsonschema import ValidationError, Draft4Validator, FormatChecker
-from jsonschema.exceptions import SchemaError
-from stitchclient.client import Client
+import requests
 import singer
 
-logger = singer.get_logger()
+from jsonschema import ValidationError, Draft4Validator, FormatChecker
+
+LOGGER = singer.get_logger()
+
+# We use this to store schema and key properties from SCHEMA messages
+StreamMeta = namedtuple('StreamMeta', ['schema', 'key_properties'])
+
+MAX_BATCH_BYTES = 4000000
+
+DEFAULT_STITCH_URL = 'https://api.stitchdata.com/v2/import/batch'
+
+def float_to_decimal(value):
+    '''Walk the given data structure and turn all instances of float into
+    double.'''
+    if isinstance(value, float):
+        return Decimal(str(value))
+    if isinstance(value, list):
+        return [float_to_decimal(child) for child in value]
+    if isinstance(value, dict):
+        return {k: float_to_decimal(v) for k, v in value.items()}
+    return value
+
+class BatchTooLargeException(Exception):
+    '''Exception for when the records and schema are so large that we can't
+    create a batch with even one record.'''
+    pass
+
+class StitchHandler(object): # pylint: disable=too-few-public-methods
+    '''Sends messages to Stitch.'''
+
+    def __init__(self, token, stitch_url, max_batch_bytes):
+        self.token = token
+        self.stitch_url = stitch_url
+        self.session = requests.Session()
+        self.max_batch_bytes = max_batch_bytes
+
+    def handle_batch(self, messages, schema, key_names):
+        '''Handle messages by sending them to Stitch.
+
+        If the serialized form of the messages is too large to fit into a
+        single request this will break them up into multiple smaller
+        requests.
+
+        '''
+        headers = {
+            'Authorization': 'Bearer {}'.format(self.token),
+            'Content-Type': 'application/json'}
+
+        LOGGER.info("Sending batch with %d messages for table %s to %s",
+                    len(messages), messages[0].stream, self.stitch_url)
+        bodies = serialize(messages, schema, key_names, self.max_batch_bytes)
+        for i, body in enumerate(bodies):
+            LOGGER.debug("Request body %d is %d bytes", i, len(body))
+            resp = self.session.post(self.stitch_url, headers=headers, data=body)
+            message = 'Batch {} of {}, {} bytes: {}: {}'.format(
+                i + 1, len(bodies), len(body), resp, resp.content)
+            if resp.status_code // 100 == 2:
+                LOGGER.info(message)
+            else:
+                raise Exception(message)
 
 
-def number_to_decimal(x):
-    '''Converts float or int to Decimal.'''
+class LoggingHandler(object):  # pylint: disable=too-few-public-methods
+    '''Logs records to a local output file.'''
+    def __init__(self, output_file, max_batch_bytes):
+        self.output_file = output_file
+        self.max_batch_bytes = max_batch_bytes
 
-    # Need to call str on it first because Decimal(int) will lose
-    # precision
-    return Decimal(str(x))
+    def handle_batch(self, messages, schema, key_names):
+        '''Handles a batch of messages by saving them to a local output file.
+
+        Serializes records in the same way StitchHandler does, so the
+        output file should contain the exact request bodies that we would
+        send to Stitch.
+
+        '''
+        LOGGER.info("Saving batch with %d messages for table %s to %s",
+                    len(messages), messages[0].stream, self.output_file.name)
+        for i, body in enumerate(serialize(messages, schema, key_names, self.max_batch_bytes)):
+            LOGGER.debug("Request body %d is %d bytes", i, len(body))
+            self.output_file.write(body)
+            self.output_file.write('\n')
 
 
-class SchemaKey:
-    '''Constants representing keywords in JSON Schema'''
-    multipleOf = 'multipleOf'
-    properties = 'properties'
-    items = 'items'
-    format = 'format'
-    type = 'type'
+class ValidatingHandler(object): # pylint: disable=too-few-public-methods
+    '''Validates input messages against their schema.'''
+
+    def handle_batch(self, messages, schema, key_names): # pylint: disable=no-self-use
+        '''Handles messages by validating them against schema.'''
+        schema = float_to_decimal(schema)
+        validator = Draft4Validator(schema, format_checker=FormatChecker())
+        for i, message in enumerate(messages):
+            if isinstance(message, singer.RecordMessage):
+                data = float_to_decimal(message.record)
+                validator.validate(data)
+                for k in key_names:
+                    if k not in data:
+                        raise Exception(
+                            'Message {} is missing key property {}'.format(
+                                i, k))
+        LOGGER.info('Batch is valid')
 
 
-def ensure_multipleof_is_decimal(schema):
-    '''Ensure multipleOf (if exists) points to a Decimal.
+def serialize(messages, schema, key_names, max_bytes):
+    '''Produces request bodies for Stitch.
 
-    Recursively walks the given schema (which must be dict), converting
-    every instance of the multipleOf keyword to a Decimal.
-
-    This modifies the input schema and also returns it.
+    Builds a request body consisting of all the messages. Serializes it as
+    JSON. If the result exceeds the request size limit, splits the batch
+    in half and recurs.
 
     '''
-    if SchemaKey.multipleOf in schema:
-        schema[SchemaKey.multipleOf] = number_to_decimal(schema[SchemaKey.multipleOf])
+    serialized_messages = []
+    for message in messages:
+        if isinstance(message, singer.RecordMessage):
+            serialized_messages.append({
+                'action': 'upsert',
+                'data': message.record,
+                'vintage': datetime.now(timezone.utc).isoformat(),
+                'sequence': int(time.time() * 1000)})
+        elif isinstance(message, singer.ActivateVersionMessage):
+            serialized_messages.append({
+                'action': 'activate_version',
+                'sequence': int(time.time() * 1000)})
 
-    if SchemaKey.properties in schema:
-        for k, v in schema[SchemaKey.properties].items():
-            ensure_multipleof_is_decimal(v)
+    body = {
+        'table_name': messages[0].stream,
+        'schema': schema,
+        'key_names': key_names,
+        'messages': serialized_messages
+    }
+    if messages[0].version is not None:
+        body['table_version'] = messages[0].version
 
-    if SchemaKey.items in schema:
-        ensure_multipleof_is_decimal(schema[SchemaKey.items])
+    serialized = json.dumps(body)
+    LOGGER.debug('Serialized %d messages into %d bytes', len(messages), len(serialized))
 
-    return schema
+    if len(serialized) < max_bytes:
+        return [serialized]
 
-def correct_numeric_types(schema, data):
-    '''Convert numeric values that should be Decimals into Decimals.
+    if len(messages) <= 1:
+        raise BatchTooLargeException("A single record is larger than batch size limit of %d")
 
-    Recursively walks the schema along with the data. For every node where
-    the schema is "number" and there is a "multipleOf" specified and the
-    value is a float or int, converts the value to a Decimal.
+    pivot = len(messages) // 2
+    l_half = serialize(messages[:pivot], schema, key_names, max_bytes)
+    r_half = serialize(messages[pivot:], schema, key_names, max_bytes)
+    return l_half + r_half
 
-    This modifies the input data and also returns it.
+
+class TargetStitch(object):
+    '''Encapsulates most of the logic of target-stitch.
+
+    Useful for unit testing.
+
     '''
-    if schema is None:
-        return data
 
-    if SchemaKey.properties in schema and isinstance(data, dict):
-        for key, subschema in schema[SchemaKey.properties].items():
-            if key in data:
-                data[key] = correct_numeric_types(subschema, data[key])
-        return data
+    def __init__(self, handlers, state_writer):
+        self.messages = []
+        self.state = None
 
-    if SchemaKey.items in schema and isinstance(data, list):
-        subschema = schema[SchemaKey.items]
-        for i in range(len(data)):
-            data[i] = correct_numeric_types(subschema, data[i])
-        return data
+        # Mapping from stream name to {'schema': ..., 'key_names': ...}
+        self.stream_meta = {}
 
-    if SchemaKey.multipleOf in schema and isinstance(data, (float, int)):
-        return number_to_decimal(data)
+        # Instance of StitchHandler
+        self.handlers = handlers
 
-    # True and False are instances of bool and also instances of int. I
-    # don't think it's appropriate to accept true and false JSON values as
-    # numbers though. So don't attempt to translate True and False to
-    # float. Let the validation step reject them later.
-    if schema.get(SchemaKey.type) == 'number' and isinstance(data, int) and not isinstance(data, bool):
-        return float(data)
+        # Writer that we write state records to
+        self.state_writer = state_writer
 
-    return data
+        # Batch size limits. Stored as properties here so we can easily
+        # change for testing.
+        self.max_batch_records = 20000
 
-def convert_datetime_strings_to_datetime(schema, data):
-    '''Convert string values that should be datetimes into datetimes.
-
-    Recursively walks the schema along with the data. For every node where
-    the schema is "string" and there the "format" is "date-time" and the
-    value is a string, converts the value to a datetime using
-    dateutil.parser.parse. We use that parser because it correctly handles
-    the date-time formats required by JSON Schema.
-
-    This modifies the input data and also returns it.
-    '''
-    if schema is None:
-        return data
-
-    if SchemaKey.properties in schema and isinstance(data, dict):
-        for key, subschema in schema[SchemaKey.properties].items():
-            if key in data:
-                data[key] = convert_datetime_strings_to_datetime(subschema, data[key])
-        return data
-
-    if SchemaKey.items in schema and isinstance(data, list):
-        subschema = schema[SchemaKey.items]
-        for i in range(len(data)):
-            data[i] = convert_datetime_strings_to_datetime(subschema, data[i])
-        return data
-
-    if SchemaKey.format in schema and schema[SchemaKey.format] == 'date-time' and isinstance(data, str):
-        return dateutil.parser.parse(data)
-
-    return data
-
-
-def write_last_state(states):
-    logger.info('Persisted batch of {} records to Stitch'.format(len(states)))
-    last_state = None
-    for state in reversed(states):
-        if state is not None:
-            last_state = state
-            break
-    if last_state:
-        line = json.dumps(state)
-        logger.debug('Emitting state {}'.format(line))
-        sys.stdout.write("{}\n".format(line))
-        sys.stdout.flush()
-
-
-class TransitDumper(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, datetime):
-            return obj.isoformat()
-        if isinstance(obj, Decimal):
-            # wanted a simple yield str(o) in the next line,
-            # but that would mean a yield on the line with super(...),
-            # which wouldn't work (see my comment below), so...
-            return str(obj)
-        else:
-            return json.JSONEncoder.default(self, obj)
-
-
-class DryRunClient(object):
-    """A client that doesn't actually persist to the Gate.
-
-    Useful for testing.
-    """
-
-    def __init__(self, buffer_size=100):
-        self.pending_callback_args = []
-        self.buffer_size = buffer_size
-        self.pending_messages = []
-        self.output_file = '/tmp/stitch-target-out.json'
-        try:
-            os.remove(self.output_file)
-        except OSError:
-            pass
 
     def flush(self):
-        logger.info("---- DRY RUN: NOTHING IS BEING PERSISTED TO STITCH ----")
-        write_last_state(self.pending_callback_args)
-        self.pending_callback_args = []
-        with open(self.output_file, 'a') as outfile:
-            for m in self.pending_messages:
-                logger.info("---- DRY RUN: WOULD HAVE SENT: %s %s", m.get('action'), m.get('table_name'))
-                json.dump(m, outfile, cls=TransitDumper)
-                outfile.write('\n')
-            self.pending_messages = []
+        '''Send all the buffered messages to Stitch.'''
 
-    def push(self, message, callback_arg=None):
-        self.pending_callback_args.append(callback_arg)
-        self.pending_messages.append(message)
+        if self.messages:
+            LOGGER.info('Flushing batch of %d messages', len(self.messages))
+            stream_meta = self.stream_meta[self.messages[0].stream]
+            for handler in self.handlers:
+                handler.handle_batch(self.messages, stream_meta.schema, stream_meta.key_properties)
+            self.messages = []
 
-        if len(self.pending_callback_args) % self.buffer_size == 0:
+        if self.state:
+            line = json.dumps(self.state)
+            LOGGER.debug('Emitting state %s', line)
+            self.state_writer.write("{}\n".format(line))
+            self.state_writer.flush()
+            self.state = None
+
+    def handle_line(self, line):
+
+        '''Takes a raw line from stdin and handles it, updating state and possibly
+        flushing the batch to the Gate and the state to the output
+        stream.
+
+        '''
+
+        message = singer.parse_message(line)
+
+        # If we got a Schema, set the schema and key properties for this
+        # stream. Flush the batch, if there is one, in case the schema is
+        # different.
+        if isinstance(message, singer.SchemaMessage):
             self.flush()
+            self.stream_meta[message.stream] = StreamMeta(
+                message.schema, message.key_properties)
+
+        elif isinstance(message, (singer.RecordMessage, singer.ActivateVersionMessage)):
+            if self.messages and (
+                    message.stream != self.messages[0].stream or
+                    message.version != self.messages[0].version):
+                self.flush()
+            self.messages.append(message)
+            if len(self.messages) >= self.max_batch_records:
+                self.flush()
+
+        elif isinstance(message, singer.StateMessage):
+            self.state = message.value
 
     def __enter__(self):
         return self
@@ -220,149 +251,9 @@ class DryRunClient(object):
         self.flush()
 
 
-def parse_record(stream, record, schemas, validators):
-    '''Parses the data out of a record message.
-
-    Converts ints and floats to decimals for fields where the schema
-    indicates decimal precision via multipleOf.
-
-    Converts ints to floats for fields where the schema is number and
-    multipleOf is not specified.
-
-    Converts strings to datetimes for fields where the schema indicates
-    "format": "date-time".
-
-    Raises a ValueError if the resulting record does not pass validation.
-
-    '''
-    if stream in schemas:
-        schema = schemas[stream]
-    else:
-        schema = {}
-
-    # We need to correct numeric types (convert floats and ints to
-    # decimals, convert ints to floats) where appropriate before doing
-    # validation, because validation requires that the multipleOf value in
-    # the schema and the value in the record have the same type.
-    record = correct_numeric_types(schema, record)
-
-    validator = validators[stream]
-
-    try:
-        validator.validate(record)
-    except ValidationError as exc:
-        raise ValueError('Record({}) does not conform to schema. Please see logs for details.{}'.format(stream,record)) from exc
-
-    # We need to convert strings to datetimes after validation because
-    # validation operates on strings, not datetimes.
-    return convert_datetime_strings_to_datetime(schema, record)
-
-def persist_lines(stitchclient, lines):
-    """Takes a client and a stream and persists all the records to the gate,
-    printing the state to stdout after each batch."""
-    state = None
-    schemas = {}
-    key_properties = {}
-    validators = {}
-    for line in lines:
-        message = singer.parse_message(line)
-
-        if isinstance(message, singer.RecordMessage):
-            if message.stream not in key_properties:
-                raise Exception("Missing schema for {}".format(message.stream))
-
-            stitch_message = {
-                'action': 'upsert',
-                'table_name': message.stream,
-                'key_names': key_properties[message.stream],
-                'sequence': int(time.time() * 1000),
-                'data': parse_record(message.stream, message.record, schemas, validators)
-            }
-            if message.version is not None:
-                stitch_message['table_version'] = message.version
-
-            stitchclient.push(stitch_message, state)
-            state = None
-
-        elif isinstance(message, singer.ActivateVersionMessage):
-            stitch_message = {
-                'action': 'switch_view',
-                'table_name': message.stream,
-                'table_version': message.version,
-                'sequence': int(time.time() * 1000)
-            }
-            stitchclient.push(stitch_message, state)
-            state = None
-
-        elif isinstance(message, singer.StateMessage):
-            state = message.value
-
-        elif isinstance(message, singer.SchemaMessage):
-
-            # Draft4Validator will fail unless both the multipleOf in the
-            # schema and the value in the data are Decimal. So we need to
-            # convert all instances of multipleOf in the schema to
-            # Decimal.
-            schemas[message.stream] = ensure_multipleof_is_decimal(message.schema)
-            key_properties[message.stream] = message.key_properties
-
-            # JSON schema will complain if 'required' is present but
-            # empty, so don't set it if there are no key properties
-            if message.key_properties:
-                schemas[message.stream]['required'] = message.key_properties
-
-            try:
-                Draft4Validator.check_schema(message.schema)
-            except SchemaError as schema_error:
-                raise Exception("Invalid json schema for stream {}: {}".format(message.stream, message.schema)) from schema_error
-
-            validators[message.stream] = Draft4Validator(message.schema, format_checker=FormatChecker())
-
-        else:
-            raise Exception("Unrecognized message {} parsed from line {}".format(message, line))
-
-    return state
-
-
-def stitch_client(args):
-    """Returns an instance of StitchClient or DryRunClient"""
-    if args.dry_run:
-        return DryRunClient()
-    else:
-        with open(args.config) as input:
-            config = json.load(input)
-
-        if not config.get('disable_collection', False):
-            logger.info('Sending version information to stitchdata.com. ' +
-                        'To disable sending anonymous usage data, set ' +
-                        'the config parameter "disable_collection" to true')
-            threading.Thread(target=collect).start()
-
-        missing_fields = []
-
-        if 'client_id' in config:
-            client_id = config['client_id']
-        else:
-            missing_fields.append('client_id')
-
-        if 'token' in config:
-            token = config['token']
-        else:
-            missing_fields.append('token')
-
-        if missing_fields:
-            raise Exception('Configuration is missing required fields: {}'
-                            .format(missing_fields))
-
-        if 'stitch_url' in config:
-            url = config['stitch_url']
-            logger.debug("Persisting to Stitch Gate at {}".format(url))
-            return Client(client_id, token, callback_function=write_last_state, stitch_url=url)
-        else:
-            return Client(client_id, token, callback_function=write_last_state)
-
-
 def collect():
+    '''Send usage info to Stitch.'''
+
     try:
         version = pkg_resources.get_distribution('target-stitch').version
         conn = http.client.HTTPSConnection('collector.stitchdata.com', timeout=10)
@@ -375,26 +266,58 @@ def collect():
             'se_la': version,
         }
         conn.request('GET', '/i?' + urllib.parse.urlencode(params))
-        response = conn.getresponse()
+        conn.getresponse()
         conn.close()
-    except:
-        logger.debug('Collection request failed')
+    except: # pylint: disable=bare-except
+        LOGGER.debug('Collection request failed')
 
 
 def main():
+    '''Main entry point'''
     parser = argparse.ArgumentParser()
-    parser.add_argument('-c', '--config', help='Config file')
-    parser.add_argument('-n', '--dry-run', help='Dry run - Do not push data to Stitch', action='store_true')
+    parser.add_argument(
+        '-c', '--config',
+        help='Config file',
+        type=argparse.FileType('r'))
+    parser.add_argument(
+        '-n', '--dry-run',
+        help='Dry run - Do not push data to Stitch',
+        action='store_true')
+    parser.add_argument(
+        '-o', '--output-file',
+        help='Save requests to this output file',
+        type=argparse.FileType('w'))
     args = parser.parse_args()
 
-    if not args.dry_run and args.config is None:
-        parser.error("config file required if not in dry run mode")
+    stdin = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
 
-    input = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
-    with stitch_client(args) as client:
-        state = persist_lines(client, input)
-    write_last_state([state])
-    logger.info("Exiting normally")
+    handlers = []
+    if args.output_file:
+        handlers.append(LoggingHandler(args.output_file, MAX_BATCH_BYTES))
+    if args.dry_run:
+        handlers.append(ValidatingHandler())
+    elif not args.config:
+        parser.error("config file required if not in dry run mode")
+    else:
+        config = json.load(args.config)
+        token = config.get('token')
+        stitch_url = config.get('stitch_url', DEFAULT_STITCH_URL)
+
+        if not token:
+            raise Exception('Configuration is missing required "token" field')
+
+        if not config.get('disable_collection'):
+            LOGGER.info('Sending version information to stitchdata.com. ' +
+                        'To disable sending anonymous usage data, set ' +
+                        'the config parameter "disable_collection" to true')
+            threading.Thread(target=collect).start()
+        handlers.append(StitchHandler(token, stitch_url, MAX_BATCH_BYTES))
+
+    with TargetStitch(handlers, sys.stdout) as target_stitch:
+        for line in stdin:
+            target_stitch.handle_line(line)
+
+    LOGGER.info("Exiting normally")
 
 if __name__ == '__main__':
     main()
