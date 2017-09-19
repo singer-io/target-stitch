@@ -9,7 +9,7 @@ import jsonschema
 import decimal
 from decimal import Decimal
 from jsonschema import ValidationError, Draft4Validator, validators, FormatChecker
-from singer import RecordMessage
+from singer import ActivateVersionMessage, RecordMessage
 
 
 class DummyClient(object):
@@ -226,25 +226,58 @@ class TestFloatToDecimal(unittest.TestCase):
 
 class TestSerialize(unittest.TestCase):
 
-    def test_does_not_exceed_byte_limit(self):
-
-        schema = {
+    def setUp(self):
+        self.schema = {
             'type': 'object',
             'properties': {
                 'id': {'type': 'integer'},
                 'color': {'type': 'string'}
             }
         }
-        key_names = ['id']
 
-        records = [{'id': i, 'color': color} for i, color in enumerate(['red', 'orange', 'yellow', 'green', 'blue', 'indigo', 'violet'])]
+        self.colors = ['red', 'orange', 'yellow', 'green', 'blue', 'indigo', 'violet']
+        self.key_names = ['id']
+        self.records = [{'id': i, 'color': color}
+                        for i, color in enumerate(self.colors)]
+        self.messages = [RecordMessage(stream='colors', record=r) for r in self.records]
+        self.messages.append(ActivateVersionMessage(stream='colors', version=1))
 
-        messages = [RecordMessage(stream='colors', record=r) for r in records]
+    def serialize_with_limit(self, limit):
+        return target_stitch.serialize(self.messages, self.schema, self.key_names, limit)
 
-        self.assertEqual(1, len(target_stitch.serialize(messages, schema, key_names, 2000)))
-        self.assertEqual(2, len(target_stitch.serialize(messages, schema, key_names, 1000)))
-        self.assertEqual(4, len(target_stitch.serialize(messages, schema, key_names, 500)))
-        self.assertEqual(7, len(target_stitch.serialize(messages, schema, key_names, 300)))
+    def unpack_colors(self, request_bodies):
+        colors = []
+        for body in request_bodies:
+            loaded = json.loads(body)
+            for message in loaded['messages']:
+                if message['action'] == 'upsert':
+                    colors.append(('upsert', message['data']['color']))
+                else:
+                    colors.append((message['action']))n
+        return colors
 
+    def test_splits_batches(self):
+        self.assertEqual(1, len(self.serialize_with_limit(2000)))
+        self.assertEqual(2, len(self.serialize_with_limit(1000)))
+        self.assertEqual(4, len(self.serialize_with_limit(500)))
+        self.assertEqual(8, len(self.serialize_with_limit(300)))
+
+    def test_raises_if_cant_stay_in_limit(self):
         with self.assertRaises(target_stitch.BatchTooLargeException):
-            target_stitch.serialize(messages, schema, key_names, 100)
+            self.serialize_with_limit(100)
+
+    def test_does_not_drop_records(self):
+        expected = [
+            ('upsert', 'red'),
+            ('upsert', 'orange'),
+            ('upsert', 'yellow'),
+            ('upsert', 'green'),
+            ('upsert', 'blue'),
+            ('upsert', 'indigo'),
+            ('upsert', 'violet'),
+            ('activate_version')]
+
+        self.assertEqual(self.colors, self.unpack_colors(self.serialize_with_limit(2000)))
+        self.assertEqual(self.colors, self.unpack_colors(self.serialize_with_limit(1000)))
+        self.assertEqual(self.colors, self.unpack_colors(self.serialize_with_limit(500)))
+        self.assertEqual(self.colors, self.unpack_colors(self.serialize_with_limit(300)))
