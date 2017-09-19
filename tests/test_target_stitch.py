@@ -15,8 +15,11 @@ class DummyClient(object):
     def __init__(self):
         self.batches = []
 
-    def handle_batch(self, batch):
-        self.batches.append(batch)
+    def handle_batch(self, messages, schema, key_names):
+        self.batches.append(
+            {'messages': messages,
+             'schema': schema,
+             'key_names': key_names})
 
 def message_lines(messages):
     return [json.dumps(m) for m in messages]
@@ -70,7 +73,7 @@ class TestTargetStitch(unittest.TestCase):
             for line in lines:
                 target.handle_line(line)
         self.assertEqual(len(self.client.batches), 1)
-        self.assertEqual(self.client.batches[0].key_names, [])
+        self.assertEqual(self.client.batches[0]['key_names'], [])
 
 
     def test_persist_lines_sets_key_names(self):
@@ -92,7 +95,7 @@ class TestTargetStitch(unittest.TestCase):
         self.assertEqual(len(self.client.batches), 1)
         batch = self.client.batches[0]
         self.assertEqual(
-            batch.schema,
+            batch['schema'],
             {
                 "properties": {
                     "id": {"type": "integer"},
@@ -101,7 +104,7 @@ class TestTargetStitch(unittest.TestCase):
             }
         )
 
-        self.assertEqual(batch.key_names, ['id'])
+        self.assertEqual(batch['key_names'], ['id'])
 
 
     def test_persist_last_state_when_stream_ends_with_record(self):
@@ -126,7 +129,7 @@ class TestTargetStitch(unittest.TestCase):
                 target.handle_line(line)
 
         expected = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [9, 10]]
-        got = [[r['data']['i'] for r in batch.messages] for batch in self.client.batches]
+        got = [[r.record['i'] for r in batch['messages']] for batch in self.client.batches]
         self.assertEqual(got, expected)
         self.assertEqual('1\n4\n9\n', self.out.getvalue())
 
@@ -154,7 +157,7 @@ class TestTargetStitch(unittest.TestCase):
 
 
         expected = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [9, 10]]
-        got = [[r['data']['i'] for r in batch.messages] for batch in self.client.batches]
+        got = [[r.record['i'] for r in batch['messages']] for batch in self.client.batches]
         self.assertEqual(got, expected)
         self.assertEqual('1\n4\n10\n', self.out.getvalue())
 
@@ -186,9 +189,9 @@ class TestTargetStitch(unittest.TestCase):
                 target.handle_line(line)
 
         self.assertEqual(len(self.client.batches), 2)
-        self.assertEqual(self.client.batches[0].key_names, ['id'])
-        self.assertEqual(self.client.batches[0].schema['properties']['id']['type'], 'integer')
-        self.assertEqual(self.client.batches[1].schema['properties']['id']['type'], 'string')
+        self.assertEqual(self.client.batches[0]['key_names'], ['id'])
+        self.assertEqual(self.client.batches[0]['schema']['properties']['id']['type'], 'integer')
+        self.assertEqual(self.client.batches[1]['schema']['properties']['id']['type'], 'string')
 
     def test_versioned_stream(self):
         lines = load_sample_lines('versioned_stream.json')
@@ -198,8 +201,8 @@ class TestTargetStitch(unittest.TestCase):
 
         batches = self.client.batches
         self.assertEqual(2, len(batches))
-        self.assertEqual(1, batches[0].table_version)
-        self.assertEqual(2, batches[1].table_version)
+        self.assertEqual(1, batches[0]['messages'][0].version)
+        self.assertEqual(2, batches[1]['messages'][0].version)
 
 class TestFloatToDecimal(unittest.TestCase):
 
