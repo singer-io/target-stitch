@@ -47,13 +47,24 @@ class StitchHandler(object):
         self.session = requests.Session()
         
 
-    def handle_batch(self, body):
+    def handle_batch(self, batch):
+
         headers = {
             'Authorization': 'Bearer {}'.format(self.token),
             'Content-Type': 'application/json'}
-        logger.info("Sending batch with %d messages for table %s to %s", len(body['messages']), body['table_name'], self.stitch_url)
-        resp = self.session.post(self.stitch_url, headers=headers, json=body)
-        resp.raise_for_status()
+
+
+        logger.info("Sending batch with %d messages for table %s to %s", len(batch.messages), batch.table_name, self.stitch_url)
+        bodies = serialize(batch)
+        logger.info("Serialized as %d requests", len(bodies))
+        
+        for i, body in enumerate(bodies):
+            logger.info("Batch %d is %d bytes", i, len(body))
+            resp = self.session.post(self.stitch_url, headers=headers, data=body)
+            if resp.status_code // 100 == 2:
+                logger.info('Ok')
+            else:
+                raise Exception('%s: %s', resp, resp.content)
 
 
 class LoggingHandler(object):
@@ -61,10 +72,13 @@ class LoggingHandler(object):
     def __init__(self, output_file):
         self.output_file = output_file
 
-    def handle_batch(self, body):
-        logger.info("Saving batch with %d messages for table %s to %s", len(body['messages']), body['table_name'], self.output_file.name)
-        json.dump(body, self.output_file)
-        self.output_file.write('\n')
+    def handle_batch(self, batch):
+        logger.info("Saving batch with %d messages for table %s to %s",
+                    len(batch.messages), batch.table_name, self.output_file.name)
+        for i, body in enumerate(serialize(batch)):
+            logger.info("  Batch %d is %d bytes", i, len(body))            
+            json.dump(body, self.output_file)
+            self.output_file.write('\n')
 
 
 def float_to_decimal(x):
@@ -79,16 +93,16 @@ def float_to_decimal(x):
 
 class ValidatingHandler(object):
 
-    def handle_batch(self, body):
-        schema = float_to_decimal(body['schema'])
+    def handle_batch(self, batch):
+        schema = float_to_decimal(batch.schema)
         validator = Draft4Validator(schema, format_checker=FormatChecker())
-        for message in body['messages']:
+        for message in batch.messages:
             if message['action'] == 'upsert':
                 data = float_to_decimal(message['data'])
                 validator.validate(data)
         logger.info('Batch is valid')
 
-def request_body(batch):
+def serialize(batch):
     msg = { }
     msg['table_name'] = batch.table_name
     if batch.table_version:
@@ -98,7 +112,7 @@ def request_body(batch):
     msg['messages'] = copy.copy(batch.messages)
     msg['key_names'] = batch.key_names
 
-    return msg
+    return [json.dumps(msg)]
 
 
 class TargetStitch(object):
@@ -122,9 +136,8 @@ class TargetStitch(object):
         self.max_batch_records = 20000
 
     def flush_to_gate(self):
-        body = request_body(self.batch)
         for handler in self.handlers:
-            handler.handle_batch(body)
+            handler.handle_batch(self.batch)
         self.batch = None
 
     def flush_state(self):
