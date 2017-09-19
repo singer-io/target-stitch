@@ -22,7 +22,7 @@ import singer
 
 from jsonschema import ValidationError, Draft4Validator, FormatChecker
 
-logger = singer.get_logger()
+LOGGER = singer.get_logger()
 
 # We use this to store schema and key properties from SCHEMA messages
 StreamMeta = namedtuple('StreamMeta', ['schema', 'key_properties'])
@@ -51,15 +51,16 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
             'Authorization': 'Bearer {}'.format(self.token),
             'Content-Type': 'application/json'}
 
-        logger.info("Sending batch with %d messages for table %s to %s", len(messages), messages[0].stream, self.stitch_url)
+        LOGGER.info("Sending batch with %d messages for table %s to %s",
+                    len(messages), messages[0].stream, self.stitch_url)
         bodies = serialize(messages, schema, key_names, self.max_batch_bytes)
         for i, body in enumerate(bodies):
-            logger.debug("Request body %d is %d bytes", i, len(body))
+            LOGGER.debug("Request body %d is %d bytes", i, len(body))
             resp = self.session.post(self.stitch_url, headers=headers, data=body)
             message = 'Batch {} of {}, {} bytes: {}: {}'.format(
                 i + 1, len(bodies), len(body), resp, resp.content)
             if resp.status_code // 100 == 2:
-                logger.info(message)
+                LOGGER.info(message)
             else:
                 raise Exception(message)
 
@@ -71,22 +72,22 @@ class LoggingHandler(object):  # pylint: disable=too-few-public-methods
         self.max_batch_bytes = max_batch_bytes
 
     def handle_batch(self, messages, schema, key_names):
-        logger.info("Saving batch with %d messages for table %s to %s",
+        LOGGER.info("Saving batch with %d messages for table %s to %s",
                     len(messages), messages[0].stream, self.output_file.name)
         for i, body in enumerate(serialize(messages, schema, key_names, self.max_batch_bytes)):
-            logger.debug("Request body %d is %d bytes", i, len(body))
+            LOGGER.debug("Request body %d is %d bytes", i, len(body))
             self.output_file.write(body)
             self.output_file.write('\n')
 
 
-def float_to_decimal(x):
-    if isinstance(x, float):
-        return Decimal(str(x))
-    if isinstance(x, list):
-        return [float_to_decimal(child) for child in x]
-    if isinstance(x, dict):
-        return {k: float_to_decimal(v) for k, v in x.items()}
-    return x
+def float_to_decimal(value):
+    if isinstance(value, float):
+        return Decimal(str(value))
+    if isinstance(value, list):
+        return [float_to_decimal(child) for child in value]
+    if isinstance(value, dict):
+        return {k: float_to_decimal(v) for k, v in value.items()}
+    return value
 
 class ValidatingHandler(object): # pylint: disable=too-few-public-methods
 
@@ -99,8 +100,10 @@ class ValidatingHandler(object): # pylint: disable=too-few-public-methods
                 validator.validate(data)
                 for k in key_names:
                     if k not in data:
-                        raise Exception('Message {} is missing key property {}'.format(i, k))
-        logger.info('Batch is valid')
+                        raise Exception(
+                            'Message {} is missing key property {}'.format(
+                                i, k))
+        LOGGER.info('Batch is valid')
 
 
 def serialize(messages, schema, key_names, max_bytes):
@@ -128,19 +131,18 @@ def serialize(messages, schema, key_names, max_bytes):
         body['table_version'] = messages[0].version
 
     serialized = json.dumps(body)
-    logger.debug('Serialized %d messages into %d bytes', len(messages), len(serialized))
+    LOGGER.debug('Serialized %d messages into %d bytes', len(messages), len(serialized))
 
     if len(serialized) < max_bytes:
         return [serialized]
 
-    n = len(messages)
-    if n <= 1:
+    if len(messages) <= 1:
         raise BatchTooLargeException("A single record is larger than batch size limit of %d")
 
-    pivot = n // 2
-    l_half = messages[:pivot]
-    r_half = messages[pivot:]
-    return serialize(l_half, schema, key_names, max_bytes) + serialize(r_half, schema, key_names, max_bytes)
+    pivot = len(messages) // 2
+    l_half = serialize(messages[:pivot], schema, key_names, max_bytes)
+    r_half = serialize(messages[pivot:], schema, key_names, max_bytes)
+    return l_half + r_half
 
 
 class TargetStitch(object):
@@ -165,7 +167,7 @@ class TargetStitch(object):
 
     def flush(self):
         if self.messages:
-            logger.info('Flushing batch of %d messages', len(self.messages))
+            LOGGER.info('Flushing batch of %d messages', len(self.messages))
             stream_meta = self.stream_meta[self.messages[0].stream]
             for handler in self.handlers:
                 handler.handle_batch(self.messages, stream_meta.schema, stream_meta.key_properties)
@@ -173,7 +175,7 @@ class TargetStitch(object):
 
         if self.state:
             line = json.dumps(self.state)
-            logger.debug('Emitting state %s', line)
+            LOGGER.debug('Emitting state %s', line)
             self.state_writer.write("{}\n".format(line))
             self.state_writer.flush()
             self.state = None
@@ -227,14 +229,23 @@ def collect():
         conn.getresponse()
         conn.close()
     except: # pylint: disable=bare-except
-        logger.debug('Collection request failed')
+        LOGGER.debug('Collection request failed')
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-c', '--config', help='Config file', type=argparse.FileType('r'))
-    parser.add_argument('-n', '--dry-run', help='Dry run - Do not push data to Stitch', action='store_true')
-    parser.add_argument('-o', '--output-file', help='Save requests to this output file', type=argparse.FileType('w'))
+    parser.add_argument(
+        '-c', '--config',
+        help='Config file',
+        type=argparse.FileType('r'))
+    parser.add_argument(
+        '-n', '--dry-run',
+        help='Dry run - Do not push data to Stitch',
+        action='store_true')
+    parser.add_argument(
+        '-o', '--output-file',
+        help='Save requests to this output file',
+        type=argparse.FileType('w'))
     args = parser.parse_args()
 
     stdin = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
@@ -255,17 +266,17 @@ def main():
             raise Exception('Configuration is missing required "token" field')
 
         if not config.get('disable_collection'):
-            logger.info('Sending version information to stitchdata.com. ' +
+            LOGGER.info('Sending version information to stitchdata.com. ' +
                         'To disable sending anonymous usage data, set ' +
                         'the config parameter "disable_collection" to true')
             threading.Thread(target=collect).start()
-        handlers.append(StitchHandler(token=token, stitch_url=stitch_url, max_batch_bytes=MAX_BATCH_BYTES))
+        handlers.append(StitchHandler(token, stitch_url, MAX_BATCH_BYTES))
 
     with TargetStitch(handlers, sys.stdout) as target_stitch:
         for line in stdin:
             target_stitch.handle_line(line)
 
-    logger.info("Exiting normally")
+    LOGGER.info("Exiting normally")
 
 if __name__ == '__main__':
     main()
