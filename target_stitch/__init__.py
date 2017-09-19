@@ -24,16 +24,21 @@ import singer
 
 logger = singer.get_logger()
 
+# We use this to store schema and key properties from SCHEMA messages
 StreamMeta = namedtuple('StreamMeta', ['schema', 'key_properties'])
 
-MAX_BATCH_BYTES = 6000
+MAX_BATCH_BYTES = 4000000
 
 DEFAULT_STITCH_URL = 'https://api.stitchdata.com/v2/import/batch'
 
 class BatchTooLargeException(Exception):
+    '''Exception for when the records and schema are so large that we can't
+    create a batch with even one record.'''
     pass
 
 class StitchHandler(object):
+    '''Sends messages to Stitch.'''
+    
     def __init__(self, token, stitch_url, max_batch_bytes):
         self.token = token
         self.stitch_url = stitch_url
@@ -48,14 +53,15 @@ class StitchHandler(object):
 
         logger.info("Sending batch with %d messages for table %s to %s", len(messages), messages[0].stream, self.stitch_url)
         bodies = serialize(messages, schema, key_names, self.max_batch_bytes)
-
         for i, body in enumerate(bodies):
-            logger.info("Request body %d is %d bytes", i, len(body))
+            logger.debug("Request body %d is %d bytes", i, len(body))
             resp = self.session.post(self.stitch_url, headers=headers, data=body)
+            message = 'Batch {} of {}, {} bytes: {}: {}'.format(
+                i + 1, len(bodies), len(body), resp, resp.content)
             if resp.status_code // 100 == 2:
-                logger.info('Ok')
+                logger.info(message)
             else:
-                raise Exception('%s: %s', resp, resp.content)
+                raise Exception(message)
 
 
 class LoggingHandler(object):
@@ -68,8 +74,8 @@ class LoggingHandler(object):
         logger.info("Saving batch with %d messages for table %s to %s",
                     len(messages), messages[0].stream, self.output_file.name)
         for i, body in enumerate(serialize(messages, schema, key_names, self.max_batch_bytes)):
-            logger.info("  Request body %d is %d bytes", i, len(body))
-            json.dump(body, self.output_file)
+            logger.debug("Request body %d is %d bytes", i, len(body))
+            self.output_file.write(body)
             self.output_file.write('\n')
 
 
@@ -120,7 +126,7 @@ def serialize(messages, schema, key_names, max_bytes):
         body['table_version'] = messages[0].version
 
     serialized = json.dumps(body)
-    logger.info('Serialized %d messages into %d bytes', len(messages), len(serialized))
+    logger.debug('Serialized %d messages into %d bytes', len(messages), len(serialized))
 
     if len(serialized) < max_bytes:
         return [serialized]
