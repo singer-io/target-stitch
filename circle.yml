@@ -8,4 +8,4 @@ dependencies:
 
 test:
   post:
-    - pylint tap_mysql    
+    - pylint target_stitch
