@@ -20,6 +20,8 @@ import urllib
 from collections import namedtuple
 from datetime import datetime, timezone
 from decimal import Decimal
+from queue import Queue
+from threading import Thread
 
 import pkg_resources
 import requests
@@ -31,8 +33,6 @@ LOGGER = singer.get_logger()
 
 # We use this to store schema and key properties from SCHEMA messages
 StreamMeta = namedtuple('StreamMeta', ['schema', 'key_properties'])
-
-MAX_BATCH_BYTES = 4000000
 
 DEFAULT_STITCH_URL = 'https://api.stitchdata.com/v2/import/batch'
 
@@ -79,7 +79,7 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
         for i, body in enumerate(bodies):
             LOGGER.debug("Request body %d is %d bytes", i, len(body))
             resp = self.session.post(self.stitch_url, headers=headers, data=body)
-            message = 'Batch {} of {}, {} bytes: {}: {}'.format(
+            message = 'Request {} of {}, {} bytes: {}: {}'.format(
                 i + 1, len(bodies), len(body), resp, resp.content)
             if resp.status_code // 100 == 2:
                 LOGGER.info(message)
@@ -173,6 +173,23 @@ def serialize(messages, schema, key_names, max_bytes):
     return l_half + r_half
 
 
+class StdinReader(Thread):
+
+    def __init__(self, reader, queue):
+        self.reader = reader
+        self.queue = queue
+        super().__init__(name='stdin_reader')        
+        
+    def run(self):
+        try:
+            for line in self.reader:
+                self.queue.put(line)
+            self.queue.put(None)
+        except:
+            LOGGER.exception('Exception reading from stdin')
+            exit(-1)
+
+
 class TargetStitch(object):
     '''Encapsulates most of the logic of target-stitch.
 
@@ -180,7 +197,7 @@ class TargetStitch(object):
 
     '''
 
-    def __init__(self, handlers, state_writer):
+    def __init__(self, handlers, state_writer, max_batch_records):
         self.messages = []
         self.state = None
 
@@ -195,14 +212,13 @@ class TargetStitch(object):
 
         # Batch size limits. Stored as properties here so we can easily
         # change for testing.
-        self.max_batch_records = 20000
+        self.max_batch_records = max_batch_records
 
 
     def flush(self):
         '''Send all the buffered messages to Stitch.'''
 
         if self.messages:
-            LOGGER.info('Flushing batch of %d messages', len(self.messages))
             stream_meta = self.stream_meta[self.messages[0].stream]
             for handler in self.handlers:
                 handler.handle_batch(self.messages, stream_meta.schema, stream_meta.key_properties)
@@ -245,10 +261,13 @@ class TargetStitch(object):
         elif isinstance(message, singer.StateMessage):
             self.state = message.value
 
-    def __enter__(self):
-        return self
 
-    def __exit__(self, exception_type, exception_value, traceback):
+    def consume(self, queue):
+        while True:
+            line = queue.get()
+            if not line:
+                break
+            self.handle_line(line)
         self.flush()
 
 
@@ -297,13 +316,13 @@ def main():
         '-o', '--output-file',
         help='Save requests to this output file',
         type=argparse.FileType('w'))
+    parser.add_argument('--max-batch-records', type=int, default=20000)
+    parser.add_argument('--max-batch-bytes', type=int, default=4000000)
     args = parser.parse_args()
-
-    stdin = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
 
     handlers = []
     if args.output_file:
-        handlers.append(LoggingHandler(args.output_file, MAX_BATCH_BYTES))
+        handlers.append(LoggingHandler(args.output_file, args.max_batch_bytes))
     if args.dry_run:
         handlers.append(ValidatingHandler())
     elif not args.config:
@@ -321,13 +340,14 @@ def main():
                         'To disable sending anonymous usage data, set ' +
                         'the config parameter "disable_collection" to true')
             threading.Thread(target=collect).start()
-        handlers.append(StitchHandler(token, stitch_url, MAX_BATCH_BYTES))
+        handlers.append(StitchHandler(token, stitch_url, args.max_batch_bytes))
 
-    with TargetStitch(handlers, sys.stdout) as target_stitch:
-        for line in stdin:
-            target_stitch.handle_line(line)
-
+    queue = Queue(args.max_batch_records)
+    reader = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
+    StdinReader(reader, queue).start()
+    TargetStitch(handlers, sys.stdout, args.max_batch_records).consume(queue)
     LOGGER.info("Exiting normally")
 
+    
 if __name__ == '__main__':
     main()
