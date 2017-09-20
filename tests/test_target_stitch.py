@@ -7,6 +7,7 @@ import sys
 import datetime
 import jsonschema
 import decimal
+from queue import Queue
 from decimal import Decimal
 from jsonschema import ValidationError, Draft4Validator, validators, FormatChecker
 from singer import ActivateVersionMessage, RecordMessage
@@ -23,9 +24,12 @@ class DummyClient(object):
              'schema': schema,
              'key_names': key_names})
 
-def message_lines(messages):
-    return [json.dumps(m) for m in messages]
-
+def message_queue(messages):
+    queue = Queue(-1)
+    for m in messages:
+        queue.put(json.dumps(m))
+    queue.put(None)
+    return queue
 
 def persist_all(recs):
     with DummyClient() as client:
@@ -46,7 +50,11 @@ schema = {"type": "SCHEMA",
 
 def load_sample_lines(filename):
     with open('tests/' + filename) as fp:
-        return [line for line in fp]
+        queue = Queue(-1)
+        for line in fp:
+            queue.put(line)
+        queue.put(None)
+        return queue
 
 
 class TestTargetStitch(unittest.TestCase):
@@ -54,7 +62,8 @@ class TestTargetStitch(unittest.TestCase):
     def setUp(self):
         self.client = DummyClient()
         self.out = io.StringIO()
-        self.target_stitch = target_stitch.TargetStitch([self.client], self.out)
+        self.target_stitch = target_stitch.TargetStitch(
+            [self.client], self.out, 20000)
 
     def test_persist_lines_fails_without_key_properties(self):
         recs = [
@@ -66,14 +75,11 @@ class TestTargetStitch(unittest.TestCase):
                      "name": {"type": "string"}}}}]
 
         with self.assertRaises(Exception):
-            for line in message_lines(recs):
-                self.target_stitch.handle_line(line)
+            target_stitch.consume(message_queue(recs))
 
     def test_persist_lines_works_with_empty_key_properties(self):
-        lines = load_sample_lines('empty_key_properties.json')
-        with self.target_stitch as target:
-            for line in lines:
-                target.handle_line(line)
+        queue = load_sample_lines('empty_key_properties.json')
+        self.target_stitch.consume(queue)
         self.assertEqual(len(self.client.batches), 1)
         self.assertEqual(self.client.batches[0]['key_names'], [])
 
@@ -91,9 +97,7 @@ class TestTargetStitch(unittest.TestCase):
              "stream": "users",
              "record": {"id": 1, "name": "mike"}}]
 
-        with self.target_stitch as target:
-            for line in message_lines(inputs):
-                target.handle_line(line)
+        self.target_stitch.consume(message_queue(inputs))
         self.assertEqual(len(self.client.batches), 1)
         batch = self.client.batches[0]
         self.assertEqual(
@@ -126,9 +130,7 @@ class TestTargetStitch(unittest.TestCase):
             state(9),
             record(10)]
 
-        with self.target_stitch as target:
-            for line in message_lines(inputs):
-                target.handle_line(line)
+        self.target_stitch.consume(message_queue(inputs))
 
         expected = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [9, 10]]
         got = [[r.record['i'] for r in batch['messages']] for batch in self.client.batches]
@@ -153,9 +155,7 @@ class TestTargetStitch(unittest.TestCase):
             record(10),
             state(10)]
 
-        with self.target_stitch as target:
-            for line in message_lines(inputs):
-                target.handle_line(line)
+        self.target_stitch.consume(message_queue(inputs))
 
 
         expected = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [9, 10]]
@@ -186,9 +186,7 @@ class TestTargetStitch(unittest.TestCase):
              "stream": "users",
              "record": {"id": "1", "name": "mike"}}]
 
-        with self.target_stitch as target:
-            for line in message_lines(inputs):
-                target.handle_line(line)
+        self.target_stitch.consume(message_queue(inputs))
 
         self.assertEqual(len(self.client.batches), 2)
         self.assertEqual(self.client.batches[0]['key_names'], ['id'])
@@ -196,10 +194,8 @@ class TestTargetStitch(unittest.TestCase):
         self.assertEqual(self.client.batches[1]['schema']['properties']['id']['type'], 'string')
 
     def test_versioned_stream(self):
-        lines = load_sample_lines('versioned_stream.json')
-        with self.target_stitch as target:
-            for line in lines:
-                target.handle_line(line)
+        queue = load_sample_lines('versioned_stream.json')
+        self.target_stitch.consume(queue)
 
         batches = self.client.batches
         self.assertEqual(2, len(batches))
