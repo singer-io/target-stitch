@@ -283,6 +283,6 @@ class test_use_batch_url(unittest.TestCase):
 
     push_url = 'https://api.stitchdata.com/v2/import/push'
     batch_url = 'https://api.stitchdata.com/v2/import/batch'
-    
+
     def test_change(self):
         self.assertEqual(self.batch_url, target_stitch.use_batch_url(self.push_url))

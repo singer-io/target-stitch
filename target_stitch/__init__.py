@@ -13,15 +13,15 @@ import json
 import os
 import re
 import sys
-import threading
 import time
 import urllib
+
+from threading import Thread
 
 from collections import namedtuple
 from datetime import datetime, timezone
 from decimal import Decimal
 from queue import Queue
-from threading import Thread
 
 import pkg_resources
 import requests
@@ -174,18 +174,24 @@ def serialize(messages, schema, key_names, max_bytes):
 
 
 class StdinReader(Thread):
-
+    '''Thread for reading lines from stdin and putting them on a queue'''
     def __init__(self, reader, queue):
         self.reader = reader
         self.queue = queue
-        super().__init__(name='stdin_reader')        
-        
+        super().__init__(name='stdin_reader')
+
     def run(self):
+        '''Read all the input from my reader and put each line on the queue.
+
+        Puts None on the queue when finished to indicate there's no more
+        data. Exits if we get an Exception while reading from stdin.
+
+        '''
         try:
             for line in self.reader:
                 self.queue.put(line)
             self.queue.put(None)
-        except:
+        except: # pylint: disable=bare-except
             LOGGER.exception('Exception reading from stdin')
             exit(-1)
 
@@ -263,6 +269,7 @@ class TargetStitch(object):
 
 
     def consume(self, queue):
+        '''Consume all the lines from the queue, flushing when done.'''
         while True:
             line = queue.get()
             if not line:
@@ -339,7 +346,7 @@ def main():
             LOGGER.info('Sending version information to stitchdata.com. ' +
                         'To disable sending anonymous usage data, set ' +
                         'the config parameter "disable_collection" to true')
-            threading.Thread(target=collect).start()
+            Thread(target=collect).start()
         handlers.append(StitchHandler(token, stitch_url, args.max_batch_bytes))
 
     queue = Queue(args.max_batch_records)
@@ -348,6 +355,6 @@ def main():
     TargetStitch(handlers, sys.stdout, args.max_batch_records).consume(queue)
     LOGGER.info("Exiting normally")
 
-    
+
 if __name__ == '__main__':
     main()
