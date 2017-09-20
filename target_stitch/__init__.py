@@ -184,7 +184,10 @@ class StdinReader(Thread):
         '''Read all the input from my reader and put each line on the queue.
 
         Puts None on the queue when finished to indicate there's no more
-        data. Exits if we get an Exception while reading from stdin.
+        data. Exits if we get an Exception while reading from stdin. If we
+        get an error reading input, we want to be absolutely sure we turn
+        that into an error exit status, and the simplest way to do that in
+        a multi-threaded environment is to exit immediately.
 
         '''
         try:
