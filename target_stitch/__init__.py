@@ -274,10 +274,12 @@ def collect():
 
 
 def use_batch_url(url):
+    '''Replace /import/push with /import/batch in URL'''
     result = url
     if url.endswith('/import/push'):
         result = url.replace('/import/push', '/import/batch')
-        LOGGER.info("I can't hit Stitch's /push endpoint, using /batch endpoint instead. Changed %s to %s", url, result)
+        LOGGER.info("I can't hit Stitch's /push endpoint, using " +
+                    "/batch endpoint instead. Changed %s to %s", url, result)
     return result
 
 def main():
@@ -309,8 +311,8 @@ def main():
     else:
         config = json.load(args.config)
         token = config.get('token')
-        stitch_url = config.get('stitch_url', DEFAULT_STITCH_URL)
-        
+        stitch_url = use_batch_url(config.get('stitch_url', DEFAULT_STITCH_URL))
+
         if not token:
             raise Exception('Configuration is missing required "token" field')
 
