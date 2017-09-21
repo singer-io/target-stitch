@@ -38,7 +38,7 @@ StreamMeta = namedtuple('StreamMeta', ['schema', 'key_properties'])
 DEFAULT_STITCH_URL = 'https://api.stitchdata.com/v2/import/batch'
 
 class Timings(object):
-
+    '''Gathers timing information for the three main steps of the Tap.'''
     def __init__(self):
         self.last_time = time.time()
         self.timings = {
@@ -50,6 +50,9 @@ class Timings(object):
 
     @contextmanager
     def mode(self, mode):
+        '''We wrap the big steps of the Tap in this context manager to accumulate
+        timing info.'''
+
         start = time.time()
         yield
         end = time.time()
@@ -59,7 +62,7 @@ class Timings(object):
 
 
     def log_timings(self):
-
+        '''We call this with every flush to print out the accumulated timings'''
         LOGGER.info('Timings: unspecified: %.3f; reading: %.3f; serializing: %.3f; posting: %.3f;',
                     self.timings[None],
                     self.timings['reading'],
