@@ -40,8 +40,7 @@ DEFAULT_STITCH_URL = 'https://api.stitchdata.com/v2/import/batch'
 class Timings(object):
 
     def __init__(self):
-        self.current_mode = None
-        self.current_mode_start = time.time()
+        self.last_time = time.time()
         self.timings = {
             'reading': 0.0,
             'serializing': 0.0,
@@ -49,15 +48,18 @@ class Timings(object):
             None: 0.0
         }
 
-    def set_mode(self, mode):
-        if mode != self.current_mode:
-            now = time.time()
-            self.timings[self.current_mode] += (now - self.current_mode_start)
-            self.current_mode = mode
-            self.current_mode_start = now
+    @contextmanager
+    def mode(self, mode):
+        start = time.time()
+        yield
+        end = time.time()
+        self.timings[None] += start - self.last_time
+        self.timings[mode] += end - start
+        self.last_time = end
+
 
     def log_timings(self):
-        
+
         LOGGER.info('Timings: unspecified: %.3f; reading: %.3f; serializing: %.3f; posting: %.3f;',
                     self.timings[None],
                     self.timings['reading'],
@@ -66,11 +68,6 @@ class Timings(object):
 
 TIMINGS = Timings()
 
-@contextmanager
-def timing(mode):
-    TIMINGS.set_mode(mode)
-    yield
-    TIMINGS.set_mode(None)
 
 def float_to_decimal(value):
     '''Walk the given data structure and turn all instances of float into
@@ -111,19 +108,18 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
 
         LOGGER.info("Sending batch with %d messages for table %s to %s",
                     len(messages), messages[0].stream, self.stitch_url)
-        with timing('serializing'):
+        with TIMINGS.mode('serializing'):
             bodies = serialize(messages, schema, key_names, self.max_batch_bytes)
 
         LOGGER.info('Split batch into %d requests', len(bodies))
         for i, body in enumerate(bodies):
-            with timing('posting'):
+            with TIMINGS.mode('posting'):
                 resp = self.session.post(self.stitch_url, headers=headers, data=body)
-            message = 'Request {} of {}, {} bytes: {}: {}'.format(
-                i + 1, len(bodies), len(body), resp, resp.content)
             if resp.status_code // 100 == 2:
-                LOGGER.info(message)
+                LOGGER.info('Request %d of %d, %d bytes: %s: %s',
+                            i + 1, len(bodies), len(body), resp, resp.content)
             else:
-                raise Exception(message)
+                raise Exception('Error posting data to Stitch: {}: {}'.format(resp, resp.content))
 
 
 class LoggingHandler(object):  # pylint: disable=too-few-public-methods
@@ -314,7 +310,7 @@ class TargetStitch(object):
     def consume(self, queue):
         '''Consume all the lines from the queue, flushing when done.'''
         while True:
-            with timing('reading'):
+            with TIMINGS.mode('reading'):
                 line = queue.get()
 
             if not line:
