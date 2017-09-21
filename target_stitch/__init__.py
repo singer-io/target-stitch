@@ -18,6 +18,7 @@ import urllib
 
 from threading import Thread
 
+from contextlib import contextmanager
 from collections import namedtuple
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -35,6 +36,41 @@ LOGGER = singer.get_logger()
 StreamMeta = namedtuple('StreamMeta', ['schema', 'key_properties'])
 
 DEFAULT_STITCH_URL = 'https://api.stitchdata.com/v2/import/batch'
+
+class Timings(object):
+
+    def __init__(self):
+        self.current_mode = None
+        self.current_mode_start = time.time()
+        self.timings = {
+            'reading': 0.0,
+            'serializing': 0.0,
+            'posting': 0.0,
+            None: 0.0
+        }
+
+    def set_mode(self, mode):
+        if mode != self.current_mode:
+            now = time.time()
+            self.timings[self.current_mode] += (now - self.current_mode_start)
+            self.current_mode = mode
+            self.current_mode_start = now
+
+    def log_timings(self):
+        
+        LOGGER.info('Timings: unspecified: %.3f; reading: %.3f; serializing: %.3f; posting: %.3f;',
+                    self.timings[None],
+                    self.timings['reading'],
+                    self.timings['serializing'],
+                    self.timings['posting'])
+
+TIMINGS = Timings()
+
+@contextmanager
+def timing(mode):
+    TIMINGS.set_mode(mode)
+    yield
+    TIMINGS.set_mode(None)
 
 def float_to_decimal(value):
     '''Walk the given data structure and turn all instances of float into
@@ -75,10 +111,13 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
 
         LOGGER.info("Sending batch with %d messages for table %s to %s",
                     len(messages), messages[0].stream, self.stitch_url)
-        bodies = serialize(messages, schema, key_names, self.max_batch_bytes)
+        with timing('serializing'):
+            bodies = serialize(messages, schema, key_names, self.max_batch_bytes)
+
+        LOGGER.info('Split batch into %d requests', len(bodies))
         for i, body in enumerate(bodies):
-            LOGGER.debug("Request body %d is %d bytes", i, len(body))
-            resp = self.session.post(self.stitch_url, headers=headers, data=body)
+            with timing('posting'):
+                resp = self.session.post(self.stitch_url, headers=headers, data=body)
             message = 'Request {} of {}, {} bytes: {}: {}'.format(
                 i + 1, len(bodies), len(body), resp, resp.content)
             if resp.status_code // 100 == 2:
@@ -178,7 +217,7 @@ class StdinReader(Thread):
     def __init__(self, reader, queue):
         self.reader = reader
         self.queue = queue
-        super().__init__(name='stdin_reader')
+        super().__init__(name='stdin_reader', daemon=True)
 
     def run(self):
         '''Read all the input from my reader and put each line on the queue.
@@ -239,6 +278,7 @@ class TargetStitch(object):
             self.state_writer.write("{}\n".format(line))
             self.state_writer.flush()
             self.state = None
+            TIMINGS.log_timings()
 
     def handle_line(self, line):
 
@@ -274,7 +314,9 @@ class TargetStitch(object):
     def consume(self, queue):
         '''Consume all the lines from the queue, flushing when done.'''
         while True:
-            line = queue.get()
+            with timing('reading'):
+                line = queue.get()
+
             if not line:
                 break
             self.handle_line(line)
