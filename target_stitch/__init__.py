@@ -403,8 +403,12 @@ def main():
     try:
         main_impl()
     except Exception as e:
+        # If we catch an exception at the top level we want to log a
+        # CRITICAL line to indicate the reason why we're terminating.
+        # Sometimes the extended stack traces can be confusing and this
+        # provides a clear way to call out the root cause.
         LOGGER.critical(e)
-        sys.exit(1)
+        raise e
 
 if __name__ == '__main__':
     main()
