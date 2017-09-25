@@ -352,7 +352,7 @@ def use_batch_url(url):
                     "/batch endpoint instead. Changed %s to %s", url, result)
     return result
 
-def main():
+def main_impl():
     '''Main entry point'''
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -399,6 +399,12 @@ def main():
     TargetStitch(handlers, sys.stdout, args.max_batch_records).consume(queue)
     LOGGER.info("Exiting normally")
 
+def main():
+    try:
+        main_impl()
+    except Exception as e:
+        LOGGER.critical(e)
+        sys.exit(1)
 
 if __name__ == '__main__':
     main()
