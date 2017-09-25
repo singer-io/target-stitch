@@ -410,11 +410,12 @@ def main():
     try:
         main_impl()
 
-    # If we catch an exception at the top level we want to log a
-    # CRITICAL line to indicate the reason why we're terminating.
-    # Sometimes the extended stack traces can be confusing and this
-    # provides a clear way to call out the root cause.
-
+    # If we catch an exception at the top level we want to log a CRITICAL
+    # line to indicate the reason why we're terminating. Sometimes the
+    # extended stack traces can be confusing and this provides a clear way
+    # to call out the root cause. If it's a known TargetStitchException we
+    # can suppress the stack trace, otherwise we should include the stack
+    # trace for debugging purposes, so re-raise the exception.
     except TargetStitchException as exc:
         LOGGER.critical(exc)
         sys.exit(1)
