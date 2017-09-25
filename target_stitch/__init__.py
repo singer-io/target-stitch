@@ -37,6 +37,10 @@ StreamMeta = namedtuple('StreamMeta', ['schema', 'key_properties'])
 
 DEFAULT_STITCH_URL = 'https://api.stitchdata.com/v2/import/batch'
 
+class TargetStitchException(Exception):
+    '''A known exception for which we don't need to print a stack trace'''
+    pass
+
 class Timings(object):
     '''Gathers timing information for the three main steps of the Tap.'''
     def __init__(self):
@@ -83,7 +87,7 @@ def float_to_decimal(value):
         return {k: float_to_decimal(v) for k, v in value.items()}
     return value
 
-class BatchTooLargeException(Exception):
+class BatchTooLargeException(TargetStitchException):
     '''Exception for when the records and schema are so large that we can't
     create a batch with even one record.'''
     pass
@@ -122,7 +126,9 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
                 LOGGER.info('Request %d of %d, %d bytes: %s: %s',
                             i + 1, len(bodies), len(body), resp, resp.content)
             else:
-                raise Exception('Error posting data to Stitch: {}: {}'.format(resp, resp.content))
+                raise TargetStitchException(
+                    'Error posting data to Stitch: {}: {}'.format(
+                        resp, resp.content))
 
 
 class LoggingHandler(object):  # pylint: disable=too-few-public-methods
@@ -160,7 +166,7 @@ class ValidatingHandler(object): # pylint: disable=too-few-public-methods
                 validator.validate(data)
                 for k in key_names:
                     if k not in data:
-                        raise Exception(
+                        raise TargetStitchException(
                             'Message {} is missing key property {}'.format(
                                 i, k))
         LOGGER.info('Batch is valid')
@@ -352,8 +358,8 @@ def use_batch_url(url):
                     "/batch endpoint instead. Changed %s to %s", url, result)
     return result
 
-def main():
-    '''Main entry point'''
+def main_impl():
+    '''We wrap this function in main() to add exception handling'''
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '-c', '--config',
@@ -399,6 +405,23 @@ def main():
     TargetStitch(handlers, sys.stdout, args.max_batch_records).consume(queue)
     LOGGER.info("Exiting normally")
 
+def main():
+    '''Main entry point'''
+    try:
+        main_impl()
+
+    # If we catch an exception at the top level we want to log a CRITICAL
+    # line to indicate the reason why we're terminating. Sometimes the
+    # extended stack traces can be confusing and this provides a clear way
+    # to call out the root cause. If it's a known TargetStitchException we
+    # can suppress the stack trace, otherwise we should include the stack
+    # trace for debugging purposes, so re-raise the exception.
+    except TargetStitchException as exc:
+        LOGGER.critical(exc)
+        sys.exit(1)
+    except Exception as exc:
+        LOGGER.critical(exc)
+        raise exc
 
 if __name__ == '__main__':
     main()
