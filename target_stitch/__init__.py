@@ -37,6 +37,9 @@ StreamMeta = namedtuple('StreamMeta', ['schema', 'key_properties'])
 
 DEFAULT_STITCH_URL = 'https://api.stitchdata.com/v2/import/batch'
 
+class TargetStitchException(Exception):
+    pass
+
 class Timings(object):
     '''Gathers timing information for the three main steps of the Tap.'''
     def __init__(self):
@@ -122,7 +125,7 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
                 LOGGER.info('Request %d of %d, %d bytes: %s: %s',
                             i + 1, len(bodies), len(body), resp, resp.content)
             else:
-                raise Exception('Error posting data to Stitch: {}: {}'.format(resp, resp.content))
+                raise TargetStitchException('Error posting data to Stitch: {}: {}'.format(resp, resp.content))
 
 
 class LoggingHandler(object):  # pylint: disable=too-few-public-methods
@@ -160,7 +163,7 @@ class ValidatingHandler(object): # pylint: disable=too-few-public-methods
                 validator.validate(data)
                 for k in key_names:
                     if k not in data:
-                        raise Exception(
+                        raise TargetStitchException(
                             'Message {} is missing key property {}'.format(
                                 i, k))
         LOGGER.info('Batch is valid')
@@ -353,7 +356,7 @@ def use_batch_url(url):
     return result
 
 def main_impl():
-    '''Main entry point'''
+    '''We wrap this function in main() to add exception handling'''
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '-c', '--config',
@@ -400,15 +403,16 @@ def main_impl():
     LOGGER.info("Exiting normally")
 
 def main():
+    '''Main entry point'''
     try:
         main_impl()
-    except Exception as e:
+    except Exception as exc:
         # If we catch an exception at the top level we want to log a
         # CRITICAL line to indicate the reason why we're terminating.
         # Sometimes the extended stack traces can be confusing and this
         # provides a clear way to call out the root cause.
-        LOGGER.critical(e)
-        raise e
+        LOGGER.critical(exc)
+        raise exc
 
 if __name__ == '__main__':
     main()
