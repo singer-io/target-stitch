@@ -38,6 +38,7 @@ StreamMeta = namedtuple('StreamMeta', ['schema', 'key_properties'])
 DEFAULT_STITCH_URL = 'https://api.stitchdata.com/v2/import/batch'
 
 class TargetStitchException(Exception):
+    '''A known exception for which we don't need to print a stack trace'''
     pass
 
 class Timings(object):
@@ -86,7 +87,7 @@ def float_to_decimal(value):
         return {k: float_to_decimal(v) for k, v in value.items()}
     return value
 
-class BatchTooLargeException(Exception):
+class BatchTooLargeException(TargetStitchException):
     '''Exception for when the records and schema are so large that we can't
     create a batch with even one record.'''
     pass
@@ -408,11 +409,16 @@ def main():
     '''Main entry point'''
     try:
         main_impl()
+
+    # If we catch an exception at the top level we want to log a
+    # CRITICAL line to indicate the reason why we're terminating.
+    # Sometimes the extended stack traces can be confusing and this
+    # provides a clear way to call out the root cause.
+
+    except TargetStitchException as exc:
+        LOGGER.critical(exc)
+        sys.exit(1)
     except Exception as exc:
-        # If we catch an exception at the top level we want to log a
-        # CRITICAL line to indicate the reason why we're terminating.
-        # Sometimes the extended stack traces can be confusing and this
-        # provides a clear way to call out the root cause.
         LOGGER.critical(exc)
         raise exc
 
