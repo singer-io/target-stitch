@@ -125,7 +125,9 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
                 LOGGER.info('Request %d of %d, %d bytes: %s: %s',
                             i + 1, len(bodies), len(body), resp, resp.content)
             else:
-                raise TargetStitchException('Error posting data to Stitch: {}: {}'.format(resp, resp.content))
+                raise TargetStitchException(
+                    'Error posting data to Stitch: {}: {}'.format(
+                        resp, resp.content))
 
 
 class LoggingHandler(object):  # pylint: disable=too-few-public-methods
