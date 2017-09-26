@@ -250,7 +250,8 @@ class TargetStitch(object):
 
     '''
 
-    def __init__(self, handlers, state_writer, max_batch_records):
+    # pylint: disable=too-many-instance-attributes
+    def __init__(self, handlers, state_writer, max_batch_records, batch_delay_seconds):
         self.messages = []
         self.state = None
 
@@ -267,6 +268,13 @@ class TargetStitch(object):
         # change for testing.
         self.max_batch_records = max_batch_records
 
+        # Minimum frequency to send a batch, used with self.time_last_batch_sent
+        self.batch_delay_seconds = batch_delay_seconds
+
+        # Time that the last batch was sent
+        self.time_last_batch_sent = time.time()
+
+
 
     def flush(self):
         '''Send all the buffered messages to Stitch.'''
@@ -275,6 +283,7 @@ class TargetStitch(object):
             stream_meta = self.stream_meta[self.messages[0].stream]
             for handler in self.handlers:
                 handler.handle_batch(self.messages, stream_meta.schema, stream_meta.key_properties)
+            self.time_last_batch_sent = time.time()
             self.messages = []
 
         if self.state:
@@ -309,7 +318,9 @@ class TargetStitch(object):
                     message.version != self.messages[0].version):
                 self.flush()
             self.messages.append(message)
-            if len(self.messages) >= self.max_batch_records:
+            enough_messages = len(self.messages) >= self.max_batch_records
+            enough_time = time.time() - self.time_last_batch_sent >= self.batch_delay_seconds
+            if enough_messages or enough_time:
                 self.flush()
 
         elif isinstance(message, singer.StateMessage):
@@ -375,6 +386,7 @@ def main_impl():
         type=argparse.FileType('w'))
     parser.add_argument('--max-batch-records', type=int, default=20000)
     parser.add_argument('--max-batch-bytes', type=int, default=4000000)
+    parser.add_argument('--batch-delay-seconds', type=float, default=300.0)
     args = parser.parse_args()
 
     handlers = []
@@ -402,7 +414,10 @@ def main_impl():
     queue = Queue(args.max_batch_records)
     reader = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
     StdinReader(reader, queue).start()
-    TargetStitch(handlers, sys.stdout, args.max_batch_records).consume(queue)
+    TargetStitch(handlers,
+                 sys.stdout,
+                 args.max_batch_records,
+                 args.batch_delay_seconds).consume(queue)
     LOGGER.info("Exiting normally")
 
 def main():
