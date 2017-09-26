@@ -386,7 +386,7 @@ def main_impl():
         type=argparse.FileType('w'))
     parser.add_argument('--max-batch-records', type=int, default=20000)
     parser.add_argument('--max-batch-bytes', type=int, default=4000000)
-    parser.add_argument('--batch-delay-seconds', type=float, default=60.0)
+    parser.add_argument('--batch-delay-seconds', type=float, default=300.0)
     args = parser.parse_args()
 
     handlers = []
