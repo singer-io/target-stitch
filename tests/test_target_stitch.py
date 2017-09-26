@@ -63,7 +63,7 @@ class TestTargetStitch(unittest.TestCase):
         self.client = DummyClient()
         self.out = io.StringIO()
         self.target_stitch = target_stitch.TargetStitch(
-            [self.client], self.out, 20000)
+            [self.client], self.out, 20000, 100000)
 
     def test_persist_lines_fails_without_key_properties(self):
         recs = [
@@ -162,6 +162,19 @@ class TestTargetStitch(unittest.TestCase):
         got = [[r.record['i'] for r in batch['messages']] for batch in self.client.batches]
         self.assertEqual(got, expected)
         self.assertEqual('1\n4\n10\n', self.out.getvalue())
+
+    def test_time_triggered_persist(self):
+        self.target_stitch.batch_delay_seconds = -1
+        self.target_stitch.max_batch_records = 10000
+        inputs = [
+            schema,
+            record(0),
+            record(1),
+            record(2)]
+        self.target_stitch.consume(message_queue(inputs))
+        expected = [[0], [1], [2]]
+        got = [[r.record['i'] for r in batch['messages']] for batch in self.client.batches]
+        self.assertEqual(got, expected)
 
     def test_persist_lines_updates_schema(self):
         inputs = [
