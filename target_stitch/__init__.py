@@ -164,11 +164,12 @@ class ValidatingHandler(object): # pylint: disable=too-few-public-methods
             if isinstance(message, singer.RecordMessage):
                 data = float_to_decimal(message.record)
                 validator.validate(data)
-                for k in key_names:
-                    if k not in data:
-                        raise TargetStitchException(
-                            'Message {} is missing key property {}'.format(
-                                i, k))
+                if key_names:
+                    for k in key_names:
+                        if k not in data:
+                            raise TargetStitchException(
+                                'Message {} is missing key property {}'.format(
+                                    i, k))
         LOGGER.info('Batch is valid')
 
 
