@@ -50,9 +50,9 @@ class MemoryReporter(Thread):
 
     def run(self):
         while True:
-            LOGGER.debug('Virtual memory usage: %.2f%% of total: %s',
-                         self.process.memory_percent(),
-                         self.process.memory_info())
+            LOGGER.info('Virtual memory usage: %.2f%% of total: %s',
+                        self.process.memory_percent(),
+                        self.process.memory_info())
             time.sleep(30.0)
 
 
