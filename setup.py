@@ -14,6 +14,7 @@ setup(name='target-stitch',
           'mock==2.0.0',
           'requests==2.18.4',
           'singer-python==3.1.0',
+          'psutil==5.3.1'
       ],
       entry_points='''
           [console_scripts]
