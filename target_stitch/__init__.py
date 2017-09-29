@@ -241,7 +241,12 @@ class TargetStitch(object):
     '''
 
     # pylint: disable=too-many-instance-attributes
-    def __init__(self, handlers, state_writer, max_batch_bytes, max_batch_records, batch_delay_seconds):
+    def __init__(self, # pylint: disable=too-many-arguments
+                 handlers,
+                 state_writer,
+                 max_batch_bytes,
+                 max_batch_records,
+                 batch_delay_seconds):
         self.messages = []
         self.buffer_size_bytes = 0
         self.state = None
@@ -408,7 +413,6 @@ def main_impl():
             Thread(target=collect).start()
         handlers.append(StitchHandler(token, stitch_url, args.max_batch_bytes))
 
-    # TODO: Figure out a better queue limit
     # queue = Queue(args.max_batch_records)
     reader = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
     TargetStitch(handlers,
