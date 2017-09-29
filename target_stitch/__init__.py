@@ -107,6 +107,15 @@ class BatchTooLargeException(TargetStitchException):
     create a batch with even one record.'''
     pass
 
+
+def stitch_error_message(response):
+
+    try:
+        return json.loads(response.json())['message']
+    except:
+        return '{}: {}'.format(response, response.content)
+    
+
 class StitchHandler(object): # pylint: disable=too-few-public-methods
     '''Sends messages to Stitch.'''
 
@@ -141,9 +150,10 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
                 LOGGER.info('Request %d of %d, %d bytes: %s: %s',
                             i + 1, len(bodies), len(body), resp, resp.content)
             else:
+                LOGGER.info('Bad response from Stitch: {}: {}'.format(resp, resp.content))
                 raise TargetStitchException(
-                    'Error posting data to Stitch: {}: {}'.format(
-                        resp, resp.content))
+                    'Error posting data to Stitch: ' +
+                    stitch_error_message(resp))
 
 
 class LoggingHandler(object):  # pylint: disable=too-few-public-methods
