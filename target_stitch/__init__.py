@@ -23,6 +23,7 @@ from collections import namedtuple
 from datetime import datetime, timezone
 from decimal import Decimal
 from queue import Queue
+import psutil
 
 import pkg_resources
 import requests
@@ -40,6 +41,20 @@ DEFAULT_STITCH_URL = 'https://api.stitchdata.com/v2/import/batch'
 class TargetStitchException(Exception):
     '''A known exception for which we don't need to print a stack trace'''
     pass
+
+class MemoryReporter(Thread):
+
+    def __init__(self):
+        self.process = psutil.Process()
+        super().__init__(name='memory_reporter', daemon=True)
+
+    def run(self):
+        while True:
+            LOGGER.debug('Virtual memory usage: %.2f%% of total: %s',
+                        self.process.memory_percent(),
+                        self.process.memory_info())
+            time.sleep(30.0)
+
 
 class Timings(object):
     '''Gathers timing information for the three main steps of the Tap.'''
@@ -424,6 +439,7 @@ def main_impl():
 def main():
     '''Main entry point'''
     try:
+        MemoryReporter().start()
         main_impl()
 
     # If we catch an exception at the top level we want to log a CRITICAL
