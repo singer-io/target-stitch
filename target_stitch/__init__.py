@@ -125,6 +125,12 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
         self.session = requests.Session()
         self.max_batch_bytes = max_batch_bytes
 
+    def headers(self):
+        return {
+            'Authorization': 'Bearer {}'.format(self.token),
+            'Content-Type': 'application/json'
+        }
+        
     def handle_batch(self, messages, schema, key_names):
         '''Handle messages by sending them to Stitch.
 
@@ -133,9 +139,6 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
         requests.
 
         '''
-        headers = {
-            'Authorization': 'Bearer {}'.format(self.token),
-            'Content-Type': 'application/json'}
 
         LOGGER.info("Sending batch with %d messages for table %s to %s",
                     len(messages), messages[0].stream, self.stitch_url)
@@ -145,7 +148,7 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
         LOGGER.info('Split batch into %d requests', len(bodies))
         for i, body in enumerate(bodies):
             with TIMINGS.mode('posting'):
-                resp = self.session.post(self.stitch_url, headers=headers, data=body)
+                resp = self.session.post(self.stitch_url, headers=self.headers(), data=body)
             if resp.status_code // 100 == 2:
                 LOGGER.info('Request %d of %d, %d bytes: %s: %s',
                             i + 1, len(bodies), len(body), resp, resp.content)
