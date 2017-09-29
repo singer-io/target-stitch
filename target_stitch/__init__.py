@@ -17,7 +17,7 @@ import time
 import urllib
 
 from threading import Thread
-
+import backoff
 from contextlib import contextmanager
 from collections import namedtuple
 from datetime import datetime, timezone
@@ -130,7 +130,16 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
             'Authorization': 'Bearer {}'.format(self.token),
             'Content-Type': 'application/json'
         }
-        
+
+    @backoff.on_predicate(backoff.expo,
+                          lambda r: r.status_code // 100 == 5,
+                          on_backoff=lambda x: LOGGER.info('backing off: %s', str(x['value'])))
+    def send(self, data):
+        url = self.stitch_url
+        headers = self.headers()
+        return self.session.post(url, headers=headers, data=data)
+
+
     def handle_batch(self, messages, schema, key_names):
         '''Handle messages by sending them to Stitch.
 
@@ -148,15 +157,12 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
         LOGGER.info('Split batch into %d requests', len(bodies))
         for i, body in enumerate(bodies):
             with TIMINGS.mode('posting'):
-                resp = self.session.post(self.stitch_url, headers=self.headers(), data=body)
-            if resp.status_code // 100 == 2:
-                LOGGER.info('Request %d of %d, %d bytes: %s: %s',
-                            i + 1, len(bodies), len(body), resp, resp.content)
-            else:
-                LOGGER.info('Bad response from Stitch: {}: {}'.format(resp, resp.content))
-                raise TargetStitchException(
-                    'Error posting data to Stitch: ' +
-                    stitch_error_message(resp))
+                LOGGER.info('Request %d of %d is %d bytes', i + 1, len(bodies), len(body))
+                resp = self.send(body)
+                if not resp.ok:
+                    raise TargetStitchException(
+                        'Error posting data to Stitch: ' +
+                        stitch_error_message(resp))       
 
 
 class LoggingHandler(object):  # pylint: disable=too-few-public-methods
