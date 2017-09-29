@@ -268,8 +268,9 @@ class TargetStitch(object):
     '''
 
     # pylint: disable=too-many-instance-attributes
-    def __init__(self, handlers, state_writer, max_batch_records, batch_delay_seconds):
+    def __init__(self, handlers, state_writer, max_batch_bytes, max_batch_records, batch_delay_seconds):
         self.messages = []
+        self.buffer_size_bytes = 0
         self.state = None
 
         # Mapping from stream name to {'schema': ..., 'key_names': ...}
@@ -283,6 +284,7 @@ class TargetStitch(object):
 
         # Batch size limits. Stored as properties here so we can easily
         # change for testing.
+        self.max_batch_bytes = max_batch_bytes
         self.max_batch_records = max_batch_records
 
         # Minimum frequency to send a batch, used with self.time_last_batch_sent
@@ -302,6 +304,7 @@ class TargetStitch(object):
                 handler.handle_batch(self.messages, stream_meta.schema, stream_meta.key_properties)
             self.time_last_batch_sent = time.time()
             self.messages = []
+            self.buffer_size_bytes = 0
 
         if self.state:
             line = json.dumps(self.state)
@@ -335,9 +338,18 @@ class TargetStitch(object):
                     message.version != self.messages[0].version):
                 self.flush()
             self.messages.append(message)
-            enough_messages = len(self.messages) >= self.max_batch_records
-            enough_time = time.time() - self.time_last_batch_sent >= self.batch_delay_seconds
-            if enough_messages or enough_time:
+            self.buffer_size_bytes += len(line)
+
+            num_bytes = self.buffer_size_bytes
+            num_messages = len(self.messages)
+            num_seconds = time.time() - self.time_last_batch_sent
+
+            enough_bytes = num_bytes >= self.max_batch_bytes
+            enough_messages = num_messages >= self.max_batch_records
+            enough_time = num_seconds >= self.batch_delay_seconds
+            if enough_bytes or enough_messages or enough_time:
+                LOGGER.info('Flushing %d bytes, %d messages, after %.2f seconds',
+                            num_bytes, num_messages, num_seconds)
                 self.flush()
 
         elif isinstance(message, singer.StateMessage):
@@ -428,11 +440,14 @@ def main_impl():
             Thread(target=collect).start()
         handlers.append(StitchHandler(token, stitch_url, args.max_batch_bytes))
 
-    queue = Queue(args.max_batch_records)
+    # TODO: Figure out a better queue limit
+    # queue = Queue(args.max_batch_records)
+    queue = Queue(1)
     reader = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
     StdinReader(reader, queue).start()
     TargetStitch(handlers,
                  sys.stdout,
+                 args.max_batch_bytes,
                  args.max_batch_records,
                  args.batch_delay_seconds).consume(queue)
     LOGGER.info("Exiting normally")

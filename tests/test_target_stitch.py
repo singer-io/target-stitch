@@ -63,7 +63,7 @@ class TestTargetStitch(unittest.TestCase):
         self.client = DummyClient()
         self.out = io.StringIO()
         self.target_stitch = target_stitch.TargetStitch(
-            [self.client], self.out, 20000, 100000)
+            [self.client], self.out, 4000000, 20000, 100000)
 
     def test_persist_lines_fails_without_key_properties(self):
         recs = [
