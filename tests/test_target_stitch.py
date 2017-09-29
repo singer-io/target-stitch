@@ -7,7 +7,7 @@ import sys
 import datetime
 import jsonschema
 import decimal
-from queue import Queue
+
 from decimal import Decimal
 from jsonschema import ValidationError, Draft4Validator, validators, FormatChecker
 from singer import ActivateVersionMessage, RecordMessage
@@ -25,11 +25,7 @@ class DummyClient(object):
              'key_names': key_names})
 
 def message_queue(messages):
-    queue = Queue(-1)
-    for m in messages:
-        queue.put(json.dumps(m))
-    queue.put(None)
-    return queue
+    return [json.dumps(m) for m in messages]
 
 def persist_all(recs):
     with DummyClient() as client:
@@ -50,11 +46,7 @@ schema = {"type": "SCHEMA",
 
 def load_sample_lines(filename):
     with open('tests/' + filename) as fp:
-        queue = Queue(-1)
-        for line in fp:
-            queue.put(line)
-        queue.put(None)
-        return queue
+        return [line for line in fp]
 
 
 class TestTargetStitch(unittest.TestCase):
@@ -63,7 +55,7 @@ class TestTargetStitch(unittest.TestCase):
         self.client = DummyClient()
         self.out = io.StringIO()
         self.target_stitch = target_stitch.TargetStitch(
-            [self.client], self.out, 20000, 100000)
+            [self.client], self.out, 4000000, 20000, 100000)
 
     def test_persist_lines_fails_without_key_properties(self):
         recs = [
