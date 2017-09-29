@@ -43,6 +43,7 @@ class TargetStitchException(Exception):
     pass
 
 class MemoryReporter(Thread):
+    '''Logs memory usage every 30 seconds'''
 
     def __init__(self):
         self.process = psutil.Process()
@@ -50,7 +51,7 @@ class MemoryReporter(Thread):
 
     def run(self):
         while True:
-            LOGGER.debug('Virtual memory usage: %.2f%% of total: %s',
+            LOGGER.info('Virtual memory usage: %.2f%% of total: %s',
                         self.process.memory_percent(),
                         self.process.memory_info())
             time.sleep(30.0)
