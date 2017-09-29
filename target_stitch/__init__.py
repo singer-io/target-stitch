@@ -22,7 +22,6 @@ from contextlib import contextmanager
 from collections import namedtuple
 from datetime import datetime, timezone
 from decimal import Decimal
-from queue import Queue
 import psutil
 
 import pkg_resources
@@ -234,32 +233,6 @@ def serialize(messages, schema, key_names, max_bytes):
     return l_half + r_half
 
 
-class StdinReader(Thread):
-    '''Thread for reading lines from stdin and putting them on a queue'''
-    def __init__(self, reader, queue):
-        self.reader = reader
-        self.queue = queue
-        super().__init__(name='stdin_reader', daemon=True)
-
-    def run(self):
-        '''Read all the input from my reader and put each line on the queue.
-
-        Puts None on the queue when finished to indicate there's no more
-        data. Exits if we get an Exception while reading from stdin. If we
-        get an error reading input, we want to be absolutely sure we turn
-        that into an error exit status, and the simplest way to do that in
-        a multi-threaded environment is to exit immediately.
-
-        '''
-        try:
-            for line in self.reader:
-                self.queue.put(line)
-            self.queue.put(None)
-        except: # pylint: disable=bare-except
-            LOGGER.exception('Exception reading from stdin')
-            exit(-1)
-
-
 class TargetStitch(object):
     '''Encapsulates most of the logic of target-stitch.
 
@@ -356,14 +329,9 @@ class TargetStitch(object):
             self.state = message.value
 
 
-    def consume(self, queue):
+    def consume(self, reader):
         '''Consume all the lines from the queue, flushing when done.'''
-        while True:
-            with TIMINGS.mode('reading'):
-                line = queue.get()
-
-            if not line:
-                break
+        for line in reader:
             self.handle_line(line)
         self.flush()
 
@@ -442,14 +410,12 @@ def main_impl():
 
     # TODO: Figure out a better queue limit
     # queue = Queue(args.max_batch_records)
-    queue = Queue(1)
     reader = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
-    StdinReader(reader, queue).start()
     TargetStitch(handlers,
                  sys.stdout,
                  args.max_batch_bytes,
                  args.max_batch_records,
-                 args.batch_delay_seconds).consume(queue)
+                 args.batch_delay_seconds).consume(reader)
     LOGGER.info("Exiting normally")
 
 def main():
