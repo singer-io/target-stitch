@@ -116,6 +116,9 @@ def stitch_error_message(response):
         return '{}: {}'.format(response, response.content)
     
 
+def _log_backoff(details):
+    LOGGER.info('Backing off: %s', details['value'])
+
 class StitchHandler(object): # pylint: disable=too-few-public-methods
     '''Sends messages to Stitch.'''
 
@@ -133,7 +136,7 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
 
     @backoff.on_predicate(backoff.expo,
                           lambda r: r.status_code // 100 == 5,
-                          on_backoff=lambda x: LOGGER.info('backing off: %s', str(x['value'])))
+                          on_backoff=_log_backoff)
     def send(self, data):
         url = self.stitch_url
         headers = self.headers()
