@@ -17,15 +17,16 @@ import time
 import urllib
 
 from threading import Thread
-
 from contextlib import contextmanager
 from collections import namedtuple
 from datetime import datetime, timezone
 from decimal import Decimal
 import psutil
 
-import pkg_resources
+import backoff
 import requests
+from requests.exceptions import RequestException, HTTPError
+import pkg_resources
 import singer
 
 from jsonschema import ValidationError, Draft4Validator, FormatChecker
@@ -107,6 +108,14 @@ class BatchTooLargeException(TargetStitchException):
     create a batch with even one record.'''
     pass
 
+
+def _log_backoff(details):
+    (_, exc, _) = sys.exc_info()
+    LOGGER.info(
+        'Error sending data to Stitch. Sleeping %d seconds before trying again: %s',
+        details['wait'], exc)
+
+
 class StitchHandler(object): # pylint: disable=too-few-public-methods
     '''Sends messages to Stitch.'''
 
@@ -116,6 +125,27 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
         self.session = requests.Session()
         self.max_batch_bytes = max_batch_bytes
 
+    def headers(self):
+        '''Return the headers based on the token'''
+        return {
+            'Authorization': 'Bearer {}'.format(self.token),
+            'Content-Type': 'application/json'
+        }
+
+    @backoff.on_exception(backoff.expo,
+                          RequestException,
+                          giveup=singer.utils.exception_is_4xx,
+                          max_tries=8,
+                          on_backoff=_log_backoff)
+    def send(self, data):
+        '''Send the given data to Stitch, retrying on exceptions'''
+        url = self.stitch_url
+        headers = self.headers()
+        response = self.session.post(url, headers=headers, data=data)
+        response.raise_for_status()
+        return response
+
+
     def handle_batch(self, messages, schema, key_names):
         '''Handle messages by sending them to Stitch.
 
@@ -124,9 +154,6 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
         requests.
 
         '''
-        headers = {
-            'Authorization': 'Bearer {}'.format(self.token),
-            'Content-Type': 'application/json'}
 
         LOGGER.info("Sending batch with %d messages for table %s to %s",
                     len(messages), messages[0].stream, self.stitch_url)
@@ -136,14 +163,32 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
         LOGGER.info('Split batch into %d requests', len(bodies))
         for i, body in enumerate(bodies):
             with TIMINGS.mode('posting'):
-                resp = self.session.post(self.stitch_url, headers=headers, data=body)
-            if resp.status_code // 100 == 2:
-                LOGGER.info('Request %d of %d, %d bytes: %s: %s',
-                            i + 1, len(bodies), len(body), resp, resp.content)
-            else:
-                raise TargetStitchException(
-                    'Error posting data to Stitch: {}: {}'.format(
-                        resp, resp.content))
+                LOGGER.debug('Request %d of %d is %d bytes', i + 1, len(bodies), len(body))
+                try:
+                    self.send(body)
+
+                # An HTTPError means we got an HTTP response but it was a
+                # bad status code. Try to parse the "message" from the
+                # json body of the response, since Stitch should include
+                # the human-oriented message in that field. If there are
+                # any errors parsing the message, just include the
+                # stringified response.
+                except HTTPError as exc:
+                    try:
+                        msg = json.loads(exc.response.json())['message']
+                    except: # pylint: disable=bare-except
+                        msg = '{}: {}'.format(exc.response, exc.response.content)
+                    raise TargetStitchException('Error sending data to Stitch: ' + msg)
+
+                # A RequestException other than HTTPError means we
+                # couldn't even connect to stitch. The exception is likely
+                # to be very long and gross. Log the full details but just
+                # include the summary in the critical error message. TODO:
+                # When we expose logs to Stitch users, modify this to
+                # suggest looking at the logs for details.
+                except RequestException as exc:
+                    LOGGER.exception(exc)
+                    raise TargetStitchException('Error connecting to Stitch')
 
 
 class LoggingHandler(object):  # pylint: disable=too-few-public-methods
