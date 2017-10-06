@@ -135,7 +135,7 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
     @backoff.on_exception(backoff.expo,
                           RequestException,
                           giveup=singer.utils.exception_is_4xx,
-                          max_tries=3,
+                          max_tries=8,
                           on_backoff=_log_backoff)
     def send(self, data):
         '''Send the given data to Stitch, retrying on exceptions'''
