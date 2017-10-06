@@ -410,8 +410,10 @@ def collect():
 def use_batch_url(url):
     '''Replace /import/push with /import/batch in URL'''
     result = url
-    if url.endswith('/import/push'):
-        result = url.replace('/import/push', '/import/batch')
+    old_suffix = '/push'
+    new_suffix = '/batch'
+    if url.endswith(old_suffix):
+        result = url[:-len(old_suffix)] + new_suffix
         LOGGER.info("I can't hit Stitch's /push endpoint, using " +
                     "/batch endpoint instead. Changed %s to %s", url, result)
     return result
