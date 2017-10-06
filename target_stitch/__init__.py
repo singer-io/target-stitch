@@ -17,16 +17,16 @@ import time
 import urllib
 
 from threading import Thread
-import backoff
 from contextlib import contextmanager
 from collections import namedtuple
 from datetime import datetime, timezone
 from decimal import Decimal
 import psutil
-from requests.exceptions import RequestException, HTTPError
 
-import pkg_resources
+import backoff
 import requests
+from requests.exceptions import RequestException, HTTPError
+import pkg_resources
 import singer
 
 from jsonschema import ValidationError, Draft4Validator, FormatChecker
@@ -109,21 +109,12 @@ class BatchTooLargeException(TargetStitchException):
     pass
 
 
-def stitch_error_message(exc):
-    if exc.response:
-        
-        try:
-            return json.loads(response.json())['message']
-        except:
-            return '{}: {}'.format(response, response.content)
-    return str(exc)
-
 def _log_backoff(details):
     (_, exc, _) = sys.exc_info()
     LOGGER.info(
-        'Error sending data to Stitch. Sleeping %d seconds before trying again: %s', 
+        'Error sending data to Stitch. Sleeping %d seconds before trying again: %s',
         details['wait'], exc)
-    
+
 
 class StitchHandler(object): # pylint: disable=too-few-public-methods
     '''Sends messages to Stitch.'''
@@ -135,6 +126,7 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
         self.max_batch_bytes = max_batch_bytes
 
     def headers(self):
+        '''Return the headers based on the token'''
         return {
             'Authorization': 'Bearer {}'.format(self.token),
             'Content-Type': 'application/json'
@@ -146,6 +138,7 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
                           max_tries=3,
                           on_backoff=_log_backoff)
     def send(self, data):
+        '''Send the given data to Stitch, retrying on exceptions'''
         url = self.stitch_url
         headers = self.headers()
         response = self.session.post(url, headers=headers, data=data)
@@ -181,11 +174,10 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
                 # any errors parsing the message, just include the
                 # stringified response.
                 except HTTPError as exc:
-                    resp = exc.response
                     try:
                         msg = json.loads(exc.response.json())['message']
-                    except:
-                        msg = '{}: {}'.format(exc.response, esc.response.content)
+                    except: # pylint: disable=bare-except
+                        msg = '{}: {}'.format(exc.response, exc.response.content)
                     raise TargetStitchException('Error sending data to Stitch: ' + msg)
 
                 # A RequestException other than HTTPError means we
