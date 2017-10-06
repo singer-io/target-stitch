@@ -284,10 +284,18 @@ class TestSerialize(unittest.TestCase):
         self.assertEqual(expected, self.unpack_colors(self.serialize_with_limit(500)))
         self.assertEqual(expected, self.unpack_colors(self.serialize_with_limit(300)))
 
-class test_use_batch_url(unittest.TestCase):
+class TestUseBatchUrl(unittest.TestCase):
 
-    push_url = 'https://api.stitchdata.com/v2/import/push'
-    batch_url = 'https://api.stitchdata.com/v2/import/batch'
+    def test_prod(self):
+        push_url = 'https://api.stitchdata.com/v2/import/push'
+        batch_url = 'https://api.stitchdata.com/v2/import/batch'
+        self.assertEqual(batch_url, target_stitch.use_batch_url(push_url))
 
-    def test_change(self):
-        self.assertEqual(self.batch_url, target_stitch.use_batch_url(self.push_url))
+    def test_vm(self):
+        push_url = 'http://localhost:5010/v2/push'
+        batch_url = 'http://localhost:5010/v2/batch'
+        self.assertEqual(batch_url, target_stitch.use_batch_url(push_url))
+
+    def test_no_match(self):
+        other_url = 'http://stitchdata.com'
+        self.assertEqual(other_url, target_stitch.use_batch_url(other_url))
