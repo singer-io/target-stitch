@@ -23,6 +23,7 @@ from collections import namedtuple
 from datetime import datetime, timezone
 from decimal import Decimal
 import psutil
+from requests.exceptions import RequestException
 
 import pkg_resources
 import requests
@@ -108,16 +109,21 @@ class BatchTooLargeException(TargetStitchException):
     pass
 
 
-def stitch_error_message(response):
-
-    try:
-        return json.loads(response.json())['message']
-    except:
-        return '{}: {}'.format(response, response.content)
-    
+def stitch_error_message(exc):
+    if exc.response:
+        
+        try:
+            return json.loads(response.json())['message']
+        except:
+            return '{}: {}'.format(response, response.content)
+    return str(exc)
 
 def _log_backoff(details):
-    LOGGER.info('Backing off: %s', details['value'])
+    (_, exc, _) = sys.exc_info()
+    LOGGER.info(
+        'Error sending data to Stitch. Sleeping %d seconds before trying again: %s', 
+        details['wait'], exc)
+    
 
 class StitchHandler(object): # pylint: disable=too-few-public-methods
     '''Sends messages to Stitch.'''
@@ -134,13 +140,17 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
             'Content-Type': 'application/json'
         }
 
-    @backoff.on_predicate(backoff.expo,
-                          lambda r: r.status_code // 100 == 5,
+    @backoff.on_exception(backoff.expo,
+                          RequestException,
+                          giveup=singer.utils.exception_is_4xx,
+                          max_tries=3,
                           on_backoff=_log_backoff)
     def send(self, data):
         url = self.stitch_url
         headers = self.headers()
-        return self.session.post(url, headers=headers, data=data)
+        response = self.session.post(url, headers=headers, data=data)
+        response.raise_for_status()
+        return response
 
 
     def handle_batch(self, messages, schema, key_names):
@@ -160,12 +170,18 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
         LOGGER.info('Split batch into %d requests', len(bodies))
         for i, body in enumerate(bodies):
             with TIMINGS.mode('posting'):
-                LOGGER.info('Request %d of %d is %d bytes', i + 1, len(bodies), len(body))
-                resp = self.send(body)
-                if not resp.ok:
-                    raise TargetStitchException(
-                        'Error posting data to Stitch: ' +
-                        stitch_error_message(resp))       
+                LOGGER.debug('Request %d of %d is %d bytes', i + 1, len(bodies), len(body))
+                try:
+                    self.send(body)
+                except RequestException as exc:
+                    if exc.response:
+                        try:
+                            msg = 'Error posting data to Stitch: ' + json.loads(response.json())['message']
+                        except:
+                            msg = 'Error posting data to Stitch: {}: {}'.format(response, response.content)
+                    else:
+                        LOGGER.exception(exc)
+                        raise TargetStitchException('Error connecting to Stitch')
 
 
 class LoggingHandler(object):  # pylint: disable=too-few-public-methods
