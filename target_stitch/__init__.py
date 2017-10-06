@@ -23,7 +23,7 @@ from collections import namedtuple
 from datetime import datetime, timezone
 from decimal import Decimal
 import psutil
-from requests.exceptions import RequestException
+from requests.exceptions import RequestException, HTTPError
 
 import pkg_resources
 import requests
@@ -173,15 +173,30 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
                 LOGGER.debug('Request %d of %d is %d bytes', i + 1, len(bodies), len(body))
                 try:
                     self.send(body)
+
+                # An HTTPError means we got an HTTP response but it was a
+                # bad status code. Try to parse the "message" from the
+                # json body of the response, since Stitch should include
+                # the human-oriented message in that field. If there are
+                # any errors parsing the message, just include the
+                # stringified response.
+                except HTTPError as exc:
+                    resp = exc.response
+                    try:
+                        msg = json.loads(exc.response.json())['message']
+                    except:
+                        msg = '{}: {}'.format(exc.response, esc.response.content)
+                    raise TargetStitchException('Error sending data to Stitch: ' + msg)
+
+                # A RequestException other than HTTPError means we
+                # couldn't even connect to stitch. The exception is likely
+                # to be very long and gross. Log the full details but just
+                # include the summary in the critical error message. TODO:
+                # When we expose logs to Stitch users, modify this to
+                # suggest looking at the logs for details.
                 except RequestException as exc:
-                    if exc.response:
-                        try:
-                            msg = 'Error posting data to Stitch: ' + json.loads(response.json())['message']
-                        except:
-                            msg = 'Error posting data to Stitch: {}: {}'.format(response, response.content)
-                    else:
-                        LOGGER.exception(exc)
-                        raise TargetStitchException('Error connecting to Stitch')
+                    LOGGER.exception(exc)
+                    raise TargetStitchException('Error connecting to Stitch')
 
 
 class LoggingHandler(object):  # pylint: disable=too-few-public-methods
