@@ -51,9 +51,9 @@ class MemoryReporter(Thread):
 
     def run(self):
         while True:
-            LOGGER.info('Virtual memory usage: %.2f%% of total: %s',
-                        self.process.memory_percent(),
-                        self.process.memory_info())
+            LOGGER.debug('Virtual memory usage: %.2f%% of total: %s',
+                         self.process.memory_percent(),
+                         self.process.memory_info())
             time.sleep(30.0)
 
 
@@ -82,10 +82,10 @@ class Timings(object):
 
     def log_timings(self):
         '''We call this with every flush to print out the accumulated timings'''
-        LOGGER.info('Timings: unspecified: %.3f; serializing: %.3f; posting: %.3f;',
-                    self.timings[None],
-                    self.timings['serializing'],
-                    self.timings['posting'])
+        LOGGER.debug('Timings: unspecified: %.3f; serializing: %.3f; posting: %.3f;',
+                     self.timings[None],
+                     self.timings['serializing'],
+                     self.timings['posting'])
 
 TIMINGS = Timings()
 
@@ -153,12 +153,12 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
 
         '''
 
-        LOGGER.info("Sending batch with %d messages for table %s to %s",
-                    len(messages), messages[0].stream, self.stitch_url)
+        LOGGER.debug("Sending batch with %d messages for table %s to %s",
+                     len(messages), messages[0].stream, self.stitch_url)
         with TIMINGS.mode('serializing'):
             bodies = serialize(messages, schema, key_names, self.max_batch_bytes)
 
-        LOGGER.info('Split batch into %d requests', len(bodies))
+        LOGGER.debug('Split batch into %d requests', len(bodies))
         for i, body in enumerate(bodies):
             with TIMINGS.mode('posting'):
                 LOGGER.debug('Request %d of %d is %d bytes', i + 1, len(bodies), len(body))
@@ -203,8 +203,8 @@ class LoggingHandler(object):  # pylint: disable=too-few-public-methods
         send to Stitch.
 
         '''
-        LOGGER.info("Saving batch with %d messages for table %s to %s",
-                    len(messages), messages[0].stream, self.output_file.name)
+        LOGGER.debug("Saving batch with %d messages for table %s to %s",
+                     len(messages), messages[0].stream, self.output_file.name)
         for i, body in enumerate(serialize(messages, schema, key_names, self.max_batch_bytes)):
             LOGGER.debug("Request body %d is %d bytes", i, len(body))
             self.output_file.write(body)
@@ -369,8 +369,8 @@ class TargetStitch(object):
             enough_messages = num_messages >= self.max_batch_records
             enough_time = num_seconds >= self.batch_delay_seconds
             if enough_bytes or enough_messages or enough_time:
-                LOGGER.info('Flushing %d bytes, %d messages, after %.2f seconds',
-                            num_bytes, num_messages, num_seconds)
+                LOGGER.debug('Flushing %d bytes, %d messages, after %.2f seconds',
+                             num_bytes, num_messages, num_seconds)
                 self.flush()
 
         elif isinstance(message, singer.StateMessage):
