@@ -62,7 +62,6 @@ class Timings(object):
     def __init__(self):
         self.last_time = time.time()
         self.timings = {
-            'reading': 0.0,
             'serializing': 0.0,
             'posting': 0.0,
             None: 0.0
@@ -83,9 +82,8 @@ class Timings(object):
 
     def log_timings(self):
         '''We call this with every flush to print out the accumulated timings'''
-        LOGGER.info('Timings: unspecified: %.3f; reading: %.3f; serializing: %.3f; posting: %.3f;',
+        LOGGER.info('Timings: unspecified: %.3f; serializing: %.3f; posting: %.3f;',
                     self.timings[None],
-                    self.timings['reading'],
                     self.timings['serializing'],
                     self.timings['posting'])
 
