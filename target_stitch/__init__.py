@@ -153,7 +153,7 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
 
         '''
 
-        LOGGER.debug("Sending batch with %d messages for table %s to %s",
+        LOGGER.info("Sending batch with %d messages for table %s to %s",
                      len(messages), messages[0].stream, self.stitch_url)
         with TIMINGS.mode('serializing'):
             bodies = serialize(messages, schema, key_names, self.max_batch_bytes)
@@ -203,7 +203,7 @@ class LoggingHandler(object):  # pylint: disable=too-few-public-methods
         send to Stitch.
 
         '''
-        LOGGER.debug("Saving batch with %d messages for table %s to %s",
+        LOGGER.info("Saving batch with %d messages for table %s to %s",
                      len(messages), messages[0].stream, self.output_file.name)
         for i, body in enumerate(serialize(messages, schema, key_names, self.max_batch_bytes)):
             LOGGER.debug("Request body %d is %d bytes", i, len(body))
@@ -329,7 +329,7 @@ class TargetStitch(object):
 
         if self.state:
             line = json.dumps(self.state)
-            LOGGER.debug('Emitting state %s', line)
+            LOGGER.info('Saving state %s', line)
             self.state_writer.write("{}\n".format(line))
             self.state_writer.flush()
             self.state = None
