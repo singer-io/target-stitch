@@ -429,10 +429,23 @@ def main_impl():
         '-o', '--output-file',
         help='Save requests to this output file',
         type=argparse.FileType('w'))
+    parser.add_argument(
+        '-v', '--verbose',
+        help='Produce debug-level logging',
+        action='store_true')
+    parser.add_argument(
+        '-q', '--quiet',
+        help='Suppress info-level logging',
+        action='store_true')
     parser.add_argument('--max-batch-records', type=int, default=20000)
     parser.add_argument('--max-batch-bytes', type=int, default=4000000)
     parser.add_argument('--batch-delay-seconds', type=float, default=300.0)
     args = parser.parse_args()
+
+    if args.verbose:
+        LOGGER.setLevel('DEBUG')
+    elif args.quiet:
+        LOGGER.setLevel('WARNING')
 
     handlers = []
     if args.output_file:
