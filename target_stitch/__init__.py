@@ -154,7 +154,7 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
         '''
 
         LOGGER.info("Sending batch with %d messages for table %s to %s",
-                     len(messages), messages[0].stream, self.stitch_url)
+                    len(messages), messages[0].stream, self.stitch_url)
         with TIMINGS.mode('serializing'):
             bodies = serialize(messages, schema, key_names, self.max_batch_bytes)
 
@@ -204,7 +204,7 @@ class LoggingHandler(object):  # pylint: disable=too-few-public-methods
 
         '''
         LOGGER.info("Saving batch with %d messages for table %s to %s",
-                     len(messages), messages[0].stream, self.output_file.name)
+                    len(messages), messages[0].stream, self.output_file.name)
         for i, body in enumerate(serialize(messages, schema, key_names, self.max_batch_bytes)):
             LOGGER.debug("Request body %d is %d bytes", i, len(body))
             self.output_file.write(body)
