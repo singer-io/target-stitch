@@ -31,7 +31,7 @@ import singer
 
 from jsonschema import ValidationError, Draft4Validator, FormatChecker
 
-LOGGER = singer.get_logger()
+LOGGER = singer.get_logger().getChild('target_stitch')
 
 # We use this to store schema and key properties from SCHEMA messages
 StreamMeta = namedtuple('StreamMeta', ['schema', 'key_properties'])
@@ -51,9 +51,9 @@ class MemoryReporter(Thread):
 
     def run(self):
         while True:
-            LOGGER.info('Virtual memory usage: %.2f%% of total: %s',
-                        self.process.memory_percent(),
-                        self.process.memory_info())
+            LOGGER.debug('Virtual memory usage: %.2f%% of total: %s',
+                         self.process.memory_percent(),
+                         self.process.memory_info())
             time.sleep(30.0)
 
 
@@ -62,7 +62,6 @@ class Timings(object):
     def __init__(self):
         self.last_time = time.time()
         self.timings = {
-            'reading': 0.0,
             'serializing': 0.0,
             'posting': 0.0,
             None: 0.0
@@ -83,11 +82,10 @@ class Timings(object):
 
     def log_timings(self):
         '''We call this with every flush to print out the accumulated timings'''
-        LOGGER.info('Timings: unspecified: %.3f; reading: %.3f; serializing: %.3f; posting: %.3f;',
-                    self.timings[None],
-                    self.timings['reading'],
-                    self.timings['serializing'],
-                    self.timings['posting'])
+        LOGGER.debug('Timings: unspecified: %.3f; serializing: %.3f; posting: %.3f;',
+                     self.timings[None],
+                     self.timings['serializing'],
+                     self.timings['posting'])
 
 TIMINGS = Timings()
 
@@ -160,7 +158,7 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
         with TIMINGS.mode('serializing'):
             bodies = serialize(messages, schema, key_names, self.max_batch_bytes)
 
-        LOGGER.info('Split batch into %d requests', len(bodies))
+        LOGGER.debug('Split batch into %d requests', len(bodies))
         for i, body in enumerate(bodies):
             with TIMINGS.mode('posting'):
                 LOGGER.debug('Request %d of %d is %d bytes', i + 1, len(bodies), len(body))
@@ -331,7 +329,7 @@ class TargetStitch(object):
 
         if self.state:
             line = json.dumps(self.state)
-            LOGGER.debug('Emitting state %s', line)
+            LOGGER.info('Saving state %s', line)
             self.state_writer.write("{}\n".format(line))
             self.state_writer.flush()
             self.state = None
@@ -371,8 +369,8 @@ class TargetStitch(object):
             enough_messages = num_messages >= self.max_batch_records
             enough_time = num_seconds >= self.batch_delay_seconds
             if enough_bytes or enough_messages or enough_time:
-                LOGGER.info('Flushing %d bytes, %d messages, after %.2f seconds',
-                            num_bytes, num_messages, num_seconds)
+                LOGGER.debug('Flushing %d bytes, %d messages, after %.2f seconds',
+                             num_bytes, num_messages, num_seconds)
                 self.flush()
 
         elif isinstance(message, singer.StateMessage):
@@ -431,10 +429,23 @@ def main_impl():
         '-o', '--output-file',
         help='Save requests to this output file',
         type=argparse.FileType('w'))
+    parser.add_argument(
+        '-v', '--verbose',
+        help='Produce debug-level logging',
+        action='store_true')
+    parser.add_argument(
+        '-q', '--quiet',
+        help='Suppress info-level logging',
+        action='store_true')
     parser.add_argument('--max-batch-records', type=int, default=20000)
     parser.add_argument('--max-batch-bytes', type=int, default=4000000)
     parser.add_argument('--batch-delay-seconds', type=float, default=300.0)
     args = parser.parse_args()
+
+    if args.verbose:
+        LOGGER.setLevel('DEBUG')
+    elif args.quiet:
+        LOGGER.setLevel('WARNING')
 
     handlers = []
     if args.output_file:
