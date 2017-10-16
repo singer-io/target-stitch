@@ -31,7 +31,7 @@ import singer
 
 from jsonschema import ValidationError, Draft4Validator, FormatChecker
 
-LOGGER = singer.get_logger()
+LOGGER = singer.get_logger().getChild('target_stitch')
 
 # We use this to store schema and key properties from SCHEMA messages
 StreamMeta = namedtuple('StreamMeta', ['schema', 'key_properties'])
