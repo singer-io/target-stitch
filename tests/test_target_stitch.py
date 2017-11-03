@@ -7,6 +7,7 @@ import sys
 import datetime
 import jsonschema
 import decimal
+import re
 
 from decimal import Decimal
 from jsonschema import ValidationError, Draft4Validator, validators, FormatChecker
@@ -265,8 +266,10 @@ class TestSerialize(unittest.TestCase):
         self.assertEqual(8, len(self.serialize_with_limit(300)))
 
     def test_raises_if_cant_stay_in_limit(self):
-        with self.assertRaises(target_stitch.BatchTooLargeException):
-            self.serialize_with_limit(100)
+        data = 'a' * 4000000
+        message = RecordMessage(stream='colors', record=data)
+        with self.assertRaisesRegex(target_stitch.BatchTooLargeException, re.compile('batch size limit of 4 Mb')):
+            target_stitch.serialize([message], self.schema, self.key_names, 4000000)
 
     def test_does_not_drop_records(self):
         expected = [

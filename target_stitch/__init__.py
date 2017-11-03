@@ -268,7 +268,9 @@ def serialize(messages, schema, key_names, max_bytes):
         return [serialized]
 
     if len(messages) <= 1:
-        raise BatchTooLargeException("A single record is larger than batch size limit of %d")
+        raise BatchTooLargeException(
+            "A single record is larger than batch size limit of {} Mb".format(
+                max_bytes // 1000000))
 
     pivot = len(messages) // 2
     l_half = serialize(messages[:pivot], schema, key_names, max_bytes)
