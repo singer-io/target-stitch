@@ -500,7 +500,8 @@ def main():
     # can suppress the stack trace, otherwise we should include the stack
     # trace for debugging purposes, so re-raise the exception.
     except TargetStitchException as exc:
-        LOGGER.critical(exc)
+        for line in str(exc).splitlines():
+            LOGGER.critical(line)
         sys.exit(1)
     except Exception as exc:
         LOGGER.critical(exc)
