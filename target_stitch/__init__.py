@@ -175,10 +175,12 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
                 except HTTPError as exc:
                     try:
                         response_body = exc.response.json()
-                        if 'message' in response_body:
+                        if isinstance(response_body, dict) and 'message' in response_body:
                             msg = response_body['message']
-                        elif 'error' in response_body:
+                        elif isinstance(response_body, dict) and 'error' in response_body:
                             msg = response_body['error']
+                        else:
+                            msg = '{}: {}'.format(exc.response, exc.response.content)
                     except: # pylint: disable=bare-except
                         LOGGER.exception('Exception while processing error response')
                         msg = '{}: {}'.format(exc.response, exc.response.content)
