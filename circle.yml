@@ -1,11 +1,13 @@
 machine:
   python:
     version: 3.4.4
-    
+
 dependencies:
   pre:
     - pip install pylint
 
 test:
+  override:
+    - nosetests --ignore-files=integration_tests.py
   post:
     - pylint target_stitch

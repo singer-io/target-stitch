@@ -163,7 +163,8 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
             with TIMINGS.mode('posting'):
                 LOGGER.debug('Request %d of %d is %d bytes', i + 1, len(bodies), len(body))
                 try:
-                    self.send(body)
+                    response = self.send(body)
+                    LOGGER.debug('Response is {}: {}'.format(response, response.content))
 
                 # An HTTPError means we got an HTTP response but it was a
                 # bad status code. Try to parse the "message" from the
@@ -173,10 +174,19 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
                 # stringified response.
                 except HTTPError as exc:
                     try:
-                        msg = json.loads(exc.response.json())['message']
+                        response_body = exc.response.json()
+                        if isinstance(response_body, dict) and 'message' in response_body:
+                            msg = response_body['message']
+                        elif isinstance(response_body, dict) and 'error' in response_body:
+                            msg = response_body['error']
+                        else:
+                            msg = '{}: {}'.format(exc.response, exc.response.content)
                     except: # pylint: disable=bare-except
+                        LOGGER.exception('Exception while processing error response')
                         msg = '{}: {}'.format(exc.response, exc.response.content)
-                    raise TargetStitchException('Error sending data to Stitch: ' + msg)
+                    raise TargetStitchException('Error persisting data for table ' +
+                                                '"' + messages[0].stream +'": ' +
+                                                msg)
 
                 # A RequestException other than HTTPError means we
                 # couldn't even connect to stitch. The exception is likely
@@ -492,7 +502,8 @@ def main():
     # can suppress the stack trace, otherwise we should include the stack
     # trace for debugging purposes, so re-raise the exception.
     except TargetStitchException as exc:
-        LOGGER.critical(exc)
+        for line in str(exc).splitlines():
+            LOGGER.critical(line)
         sys.exit(1)
     except Exception as exc:
         LOGGER.critical(exc)
