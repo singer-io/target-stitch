@@ -105,7 +105,6 @@ class TestTargetStitch(unittest.TestCase):
 
         self.assertEqual(batch['key_names'], ['id'])
 
-
     def test_persist_last_state_when_stream_ends_with_record(self):
         self.target_stitch.max_batch_records = 3
         inputs = [
