@@ -8,10 +8,15 @@ def load_sample_lines(filename):
     with open('tests/' + filename) as fp:
         return [line for line in fp]
 
+def token():
+    token = os.getenv('TARGET_STITCH_TEST_TOKEN')
+    if not token:
+        raise Exception('Integration tests require TARGET_STITCH_TEST_TOKEN environment variable to be set')
+    return token
+
 class IntegrationTest(unittest.TestCase):
     def setUp(self):
-        token = os.getenv('TARGET_STITCH_TEST_TOKEN')
-        handler = StitchHandler(token, DEFAULT_STITCH_URL, 4000000)
+        handler = StitchHandler(token(), DEFAULT_STITCH_URL, 4000000)
         out = io.StringIO()
         self.target_stitch = target_stitch.TargetStitch(
             [handler], out, 4000000, 20000, 100000)
