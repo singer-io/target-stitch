@@ -163,7 +163,8 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
             with TIMINGS.mode('posting'):
                 LOGGER.debug('Request %d of %d is %d bytes', i + 1, len(bodies), len(body))
                 try:
-                    self.send(body)
+                    response = self.send(body)
+                    LOGGER.debug('Response is {}: {}'.format(response, response.content))
 
                 # An HTTPError means we got an HTTP response but it was a
                 # bad status code. Try to parse the "message" from the
@@ -173,10 +174,17 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
                 # stringified response.
                 except HTTPError as exc:
                     try:
-                        msg = json.loads(exc.response.json())['message']
+                        response_body = exc.response.json()
+                        if 'message' in response_body:
+                            msg = response_body['message']
+                        elif 'error' in response_body:
+                            msg = response_body['error']
                     except: # pylint: disable=bare-except
+                        LOGGER.exception('bad')
                         msg = '{}: {}'.format(exc.response, exc.response.content)
-                    raise TargetStitchException('Error sending data to Stitch: ' + msg)
+                    raise TargetStitchException('Error persisting data for table ' +
+                                                '"' + messages[0].stream +'": ' +
+                                                msg)
 
                 # A RequestException other than HTTPError means we
                 # couldn't even connect to stitch. The exception is likely
