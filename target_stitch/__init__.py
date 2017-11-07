@@ -180,7 +180,7 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
                         elif 'error' in response_body:
                             msg = response_body['error']
                     except: # pylint: disable=bare-except
-                        LOGGER.exception('bad')
+                        LOGGER.exception('Exception while processing error response')
                         msg = '{}: {}'.format(exc.response, exc.response.content)
                     raise TargetStitchException('Error persisting data for table ' +
                                                 '"' + messages[0].stream +'": ' +
