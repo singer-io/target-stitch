@@ -341,7 +341,6 @@ class TargetStitch(object):
 
         if self.state:
             line = json.dumps(self.state)
-            LOGGER.info('Saving state %s', line)
             self.state_writer.write("{}\n".format(line))
             self.state_writer.flush()
             self.state = None
