@@ -257,7 +257,7 @@ def serialize(messages, schema, key_names, bookmark_names, max_bytes):
                 'sequence': int(time.time() * 1000)}
 
             if message.time_extracted:
-                record_message['time_extracted'] = message.time_extracted
+                record_message['time_extracted'] = singer.utils.strftime(message.time_extracted)
 
             serialized_messages.append(record_message)
         elif isinstance(message, singer.ActivateVersionMessage):
