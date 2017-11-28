@@ -215,7 +215,11 @@ class LoggingHandler(object):  # pylint: disable=too-few-public-methods
         '''
         LOGGER.info("Saving batch with %d messages for table %s to %s",
                     len(messages), messages[0].stream, self.output_file.name)
-        for i, body in enumerate(serialize(messages, schema, key_names, bookmark_names, self.max_batch_bytes)):
+        for i, body in enumerate(serialize(messages,
+                                           schema,
+                                           key_names,
+                                           bookmark_names,
+                                           self.max_batch_bytes)):
             LOGGER.debug("Request body %d is %d bytes", i, len(body))
             self.output_file.write(body)
             self.output_file.write('\n')
@@ -224,7 +228,7 @@ class LoggingHandler(object):  # pylint: disable=too-few-public-methods
 class ValidatingHandler(object): # pylint: disable=too-few-public-methods
     '''Validates input messages against their schema.'''
 
-    def handle_batch(self, messages, schema, key_names, bookmark_names=None): # pylint: disable=no-self-use
+    def handle_batch(self, messages, schema, key_names, bookmark_names=None): # pylint: disable=no-self-use,unused-argument
         '''Handles messages by validating them against schema.'''
         schema = float_to_decimal(schema)
         validator = Draft4Validator(schema, format_checker=FormatChecker())
