@@ -13,7 +13,7 @@ setup(name='target-stitch',
           'jsonschema==2.6.0',
           'mock==2.0.0',
           'requests==2.18.4',
-          'singer-python==3.5.1',
+          'singer-python==5.0.0',
           'psutil==5.3.1'
       ],
       entry_points='''
