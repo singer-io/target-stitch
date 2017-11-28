@@ -11,7 +11,7 @@ import re
 
 from decimal import Decimal
 from jsonschema import ValidationError, Draft4Validator, validators, FormatChecker
-from singer import ActivateVersionMessage, RecordMessage
+from singer import ActivateVersionMessage, RecordMessage, utils
 
 
 class DummyClient(object):
@@ -19,11 +19,12 @@ class DummyClient(object):
     def __init__(self):
         self.batches = []
 
-    def handle_batch(self, messages, schema, key_names):
+    def handle_batch(self, messages, schema, key_names, bookmark_names):
         self.batches.append(
             {'messages': messages,
              'schema': schema,
-             'key_names': key_names})
+             'key_names': key_names,
+             'bookmark_names': bookmark_names})
 
 def message_queue(messages):
     return [json.dumps(m) for m in messages]
@@ -238,13 +239,15 @@ class TestSerialize(unittest.TestCase):
 
         self.colors = ['red', 'orange', 'yellow', 'green', 'blue', 'indigo', 'violet']
         self.key_names = ['id']
-        self.records = [{'id': i, 'color': color}
+        self.bookmark_names = ['updated_at']
+
+        self.records = [{'id': i, 'color': color, 'updated_at': utils.strftime(utils.now())}
                         for i, color in enumerate(self.colors)]
         self.messages = [RecordMessage(stream='colors', record=r) for r in self.records]
         self.messages.append(ActivateVersionMessage(stream='colors', version=1))
 
     def serialize_with_limit(self, limit):
-        return target_stitch.serialize(self.messages, self.schema, self.key_names, limit)
+        return target_stitch.serialize(self.messages, self.schema, self.key_names, self.bookmark_names, limit)
 
     def unpack_colors(self, request_bodies):
         colors = []
@@ -262,13 +265,13 @@ class TestSerialize(unittest.TestCase):
         self.assertEqual(1, len(self.serialize_with_limit(2000)))
         self.assertEqual(2, len(self.serialize_with_limit(1000)))
         self.assertEqual(4, len(self.serialize_with_limit(500)))
-        self.assertEqual(8, len(self.serialize_with_limit(300)))
+        self.assertEqual(8, len(self.serialize_with_limit(385)))
 
     def test_raises_if_cant_stay_in_limit(self):
         data = 'a' * 4000000
         message = RecordMessage(stream='colors', record=data)
         with self.assertRaisesRegex(target_stitch.BatchTooLargeException, re.compile('batch size limit of 4 Mb')):
-            target_stitch.serialize([message], self.schema, self.key_names, 4000000)
+            target_stitch.serialize([message], self.schema, self.key_names, self.bookmark_names, 4000000)
 
     def test_does_not_drop_records(self):
         expected = [
@@ -284,7 +287,7 @@ class TestSerialize(unittest.TestCase):
         self.assertEqual(expected, self.unpack_colors(self.serialize_with_limit(2000)))
         self.assertEqual(expected, self.unpack_colors(self.serialize_with_limit(1000)))
         self.assertEqual(expected, self.unpack_colors(self.serialize_with_limit(500)))
-        self.assertEqual(expected, self.unpack_colors(self.serialize_with_limit(300)))
+        self.assertEqual(expected, self.unpack_colors(self.serialize_with_limit(385)))
 
 class test_use_batch_url(unittest.TestCase):
 
