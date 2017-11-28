@@ -34,7 +34,7 @@ from jsonschema import ValidationError, Draft4Validator, FormatChecker
 LOGGER = singer.get_logger().getChild('target_stitch')
 
 # We use this to store schema and key properties from SCHEMA messages
-StreamMeta = namedtuple('StreamMeta', ['schema', 'key_properties'])
+StreamMeta = namedtuple('StreamMeta', ['schema', 'key_properties', 'bookmark_properties'])
 
 DEFAULT_STITCH_URL = 'https://api.stitchdata.com/v2/import/batch'
 
@@ -144,7 +144,7 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
         return response
 
 
-    def handle_batch(self, messages, schema, key_names):
+    def handle_batch(self, messages, schema, key_names, bookmark_names=None):
         '''Handle messages by sending them to Stitch.
 
         If the serialized form of the messages is too large to fit into a
@@ -156,7 +156,7 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
         LOGGER.info("Sending batch with %d messages for table %s to %s",
                     len(messages), messages[0].stream, self.stitch_url)
         with TIMINGS.mode('serializing'):
-            bodies = serialize(messages, schema, key_names, self.max_batch_bytes)
+            bodies = serialize(messages, schema, key_names, bookmark_names, self.max_batch_bytes)
 
         LOGGER.debug('Split batch into %d requests', len(bodies))
         for i, body in enumerate(bodies):
@@ -205,7 +205,7 @@ class LoggingHandler(object):  # pylint: disable=too-few-public-methods
         self.output_file = output_file
         self.max_batch_bytes = max_batch_bytes
 
-    def handle_batch(self, messages, schema, key_names):
+    def handle_batch(self, messages, schema, key_names, bookmark_names=None):
         '''Handles a batch of messages by saving them to a local output file.
 
         Serializes records in the same way StitchHandler does, so the
@@ -215,7 +215,7 @@ class LoggingHandler(object):  # pylint: disable=too-few-public-methods
         '''
         LOGGER.info("Saving batch with %d messages for table %s to %s",
                     len(messages), messages[0].stream, self.output_file.name)
-        for i, body in enumerate(serialize(messages, schema, key_names, self.max_batch_bytes)):
+        for i, body in enumerate(serialize(messages, schema, key_names, bookmark_names, self.max_batch_bytes)):
             LOGGER.debug("Request body %d is %d bytes", i, len(body))
             self.output_file.write(body)
             self.output_file.write('\n')
@@ -224,7 +224,7 @@ class LoggingHandler(object):  # pylint: disable=too-few-public-methods
 class ValidatingHandler(object): # pylint: disable=too-few-public-methods
     '''Validates input messages against their schema.'''
 
-    def handle_batch(self, messages, schema, key_names): # pylint: disable=no-self-use
+    def handle_batch(self, messages, schema, key_names, bookmark_names=None): # pylint: disable=no-self-use
         '''Handles messages by validating them against schema.'''
         schema = float_to_decimal(schema)
         validator = Draft4Validator(schema, format_checker=FormatChecker())
@@ -240,8 +240,7 @@ class ValidatingHandler(object): # pylint: disable=too-few-public-methods
                                     i, k))
         LOGGER.info('Batch is valid')
 
-
-def serialize(messages, schema, key_names, max_bytes):
+def serialize(messages, schema, key_names, bookmark_names, max_bytes):
     '''Produces request bodies for Stitch.
 
     Builds a request body consisting of all the messages. Serializes it as
@@ -252,11 +251,15 @@ def serialize(messages, schema, key_names, max_bytes):
     serialized_messages = []
     for message in messages:
         if isinstance(message, singer.RecordMessage):
-            serialized_messages.append({
+            record_message = {
                 'action': 'upsert',
                 'data': message.record,
-                'vintage': datetime.now(timezone.utc).isoformat(),
-                'sequence': int(time.time() * 1000)})
+                'sequence': int(time.time() * 1000)}
+
+            if message.time_extracted:
+                record_message['time_extracted'] = message.time_extracted
+
+            serialized_messages.append(record_message)
         elif isinstance(message, singer.ActivateVersionMessage):
             serialized_messages.append({
                 'action': 'activate_version',
@@ -271,6 +274,9 @@ def serialize(messages, schema, key_names, max_bytes):
     if messages[0].version is not None:
         body['table_version'] = messages[0].version
 
+    if bookmark_names:
+        body['bookmark_names'] = bookmark_names
+
     serialized = json.dumps(body)
     LOGGER.debug('Serialized %d messages into %d bytes', len(messages), len(serialized))
 
@@ -283,8 +289,8 @@ def serialize(messages, schema, key_names, max_bytes):
                 max_bytes // 1000000))
 
     pivot = len(messages) // 2
-    l_half = serialize(messages[:pivot], schema, key_names, max_bytes)
-    r_half = serialize(messages[pivot:], schema, key_names, max_bytes)
+    l_half = serialize(messages[:pivot], schema, key_names, bookmark_names, max_bytes)
+    r_half = serialize(messages[pivot:], schema, key_names, bookmark_names, max_bytes)
     return l_half + r_half
 
 
@@ -306,7 +312,7 @@ class TargetStitch(object):
         self.buffer_size_bytes = 0
         self.state = None
 
-        # Mapping from stream name to {'schema': ..., 'key_names': ...}
+        # Mapping from stream name to {'schema': ..., 'key_names': ..., 'bookmark_names': ... }
         self.stream_meta = {}
 
         # Instance of StitchHandler
@@ -334,7 +340,10 @@ class TargetStitch(object):
         if self.messages:
             stream_meta = self.stream_meta[self.messages[0].stream]
             for handler in self.handlers:
-                handler.handle_batch(self.messages, stream_meta.schema, stream_meta.key_properties)
+                handler.handle_batch(self.messages,
+                                     stream_meta.schema,
+                                     stream_meta.key_properties,
+                                     stream_meta.bookmark_properties)
             self.time_last_batch_sent = time.time()
             self.messages = []
             self.buffer_size_bytes = 0
@@ -361,8 +370,11 @@ class TargetStitch(object):
         # different.
         if isinstance(message, singer.SchemaMessage):
             self.flush()
+
             self.stream_meta[message.stream] = StreamMeta(
-                message.schema, message.key_properties)
+                message.schema,
+                message.key_properties,
+                message.bookmark_properties)
 
         elif isinstance(message, (singer.RecordMessage, singer.ActivateVersionMessage)):
             if self.messages and (
