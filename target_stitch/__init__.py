@@ -139,7 +139,11 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
         '''Send the given data to Stitch, retrying on exceptions'''
         url = self.stitch_url
         headers = self.headers()
-        response = self.session.post(url, headers=headers, data=data)
+        ssl_verify = True
+        if os.environ.get("TARGET_STITCH_SSL_VERIFY") == 'false':
+            ssl_verify = False
+
+        response = self.session.post(url, headers=headers, data=data, verify=ssl_verify)
         response.raise_for_status()
         return response
 
