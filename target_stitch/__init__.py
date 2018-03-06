@@ -23,13 +23,12 @@ from datetime import datetime, timezone
 from decimal import Decimal
 import psutil
 
-import backoff
 import requests
 from requests.exceptions import RequestException, HTTPError
-import pkg_resources
-import singer
-
 from jsonschema import ValidationError, Draft4Validator, FormatChecker
+import pkg_resources
+import backoff
+import singer
 
 LOGGER = singer.get_logger().getChild('target_stitch')
 
