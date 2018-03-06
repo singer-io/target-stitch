@@ -27,8 +27,8 @@ import requests
 from requests.exceptions import RequestException, HTTPError
 from jsonschema import ValidationError, Draft4Validator, FormatChecker
 import pkg_resources
-import backoff
 import singer
+import backoff
 
 LOGGER = singer.get_logger().getChild('target_stitch')
 
