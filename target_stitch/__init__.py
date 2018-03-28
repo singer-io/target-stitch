@@ -289,7 +289,7 @@ def serialize(messages, schema, key_names, bookmark_names, max_bytes):
 
     if len(messages) <= 1:
         raise BatchTooLargeException(
-            "A single record is larger than batch size limit of {} Mb".format(
+            "A single record is larger than the Stitch API limit of {} Mb".format(
                 max_bytes // 1000000))
 
     pivot = len(messages) // 2
