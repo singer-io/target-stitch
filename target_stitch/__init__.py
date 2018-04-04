@@ -23,13 +23,12 @@ from datetime import datetime, timezone
 from decimal import Decimal
 import psutil
 
-import backoff
 import requests
 from requests.exceptions import RequestException, HTTPError
+from jsonschema import ValidationError, Draft4Validator, FormatChecker
 import pkg_resources
 import singer
-
-from jsonschema import ValidationError, Draft4Validator, FormatChecker
+import backoff
 
 LOGGER = singer.get_logger().getChild('target_stitch')
 
@@ -139,7 +138,11 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
         '''Send the given data to Stitch, retrying on exceptions'''
         url = self.stitch_url
         headers = self.headers()
-        response = self.session.post(url, headers=headers, data=data)
+        ssl_verify = True
+        if os.environ.get("TARGET_STITCH_SSL_VERIFY") == 'false':
+            ssl_verify = False
+
+        response = self.session.post(url, headers=headers, data=data, verify=ssl_verify)
         response.raise_for_status()
         return response
 
