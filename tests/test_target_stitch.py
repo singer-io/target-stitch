@@ -293,8 +293,9 @@ class TestSerialize(unittest.TestCase):
     def test_serialize_time_extracted(self):
         """ Test that we're not corrupting timestamps with cross platform parsing. (Test case for OSX, specifically) """
         expected = "1970-01-01T03:45:23.000000Z"
+        test_time = datetime.datetime(1970, 1, 1, 3, 45, 23, tzinfo=pytz.utc)
 
-        record = [RecordMessage("greetings",'{greeting: "hi"}', time_extracted=datetime.datetime(1970, 1, 1, 3, 45, 23, tzinfo=pytz.utc))]
+        record = [RecordMessage("greetings",'{greeting: "hi"}', time_extracted=test_time)]
         schema = '{"type": "object", "properties": {"greeting": {"type": "string"}}}'
         batch = target_stitch.serialize(record, schema, [], [], 1000)[0]
         actual = json.loads(batch)["messages"][0]["time_extracted"]
