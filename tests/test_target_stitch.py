@@ -5,6 +5,7 @@ import io
 import mock
 import sys
 import datetime
+import pytz
 import jsonschema
 import decimal
 import re
@@ -270,7 +271,7 @@ class TestSerialize(unittest.TestCase):
     def test_raises_if_cant_stay_in_limit(self):
         data = 'a' * 4000000
         message = RecordMessage(stream='colors', record=data)
-        with self.assertRaisesRegex(target_stitch.BatchTooLargeException, re.compile('batch size limit of 4 Mb')):
+        with self.assertRaisesRegex(target_stitch.BatchTooLargeException, re.compile('the Stitch API limit of 4 Mb')):
             target_stitch.serialize([message], self.schema, self.key_names, self.bookmark_names, 4000000)
 
     def test_does_not_drop_records(self):
@@ -288,6 +289,17 @@ class TestSerialize(unittest.TestCase):
         self.assertEqual(expected, self.unpack_colors(self.serialize_with_limit(1000)))
         self.assertEqual(expected, self.unpack_colors(self.serialize_with_limit(500)))
         self.assertEqual(expected, self.unpack_colors(self.serialize_with_limit(385)))
+
+    def test_serialize_time_extracted(self):
+        """ Test that we're not corrupting timestamps with cross platform parsing. (Test case for OSX, specifically) """
+        expected = "1970-01-01T03:45:23.000000Z"
+
+        record = [RecordMessage("greetings",'{greeting: "hi"}', time_extracted=datetime.datetime(1970, 1, 1, 3, 45, 23, tzinfo=pytz.utc))]
+        schema = '{"type": "object", "properties": {"greeting": {"type": "string"}}}'
+        batch = target_stitch.serialize(record, schema, [], [], 1000)[0]
+        actual = json.loads(batch)["messages"][0]["time_extracted"]
+
+        self.assertEqual(expected, actual)
 
 class test_use_batch_url(unittest.TestCase):
 
