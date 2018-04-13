@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.7.3
+  * Update to singer-python==5.0.15 to use the change to `RecordMessage.asdict` for serialization of `time_extracted`
+
 ## 1.7.2
   * Updates serialize to format `time_extracted` in a cross platform way, using `singer.utils.strftime`
 
