@@ -287,7 +287,7 @@ def serialize(messages, schema, key_names, bookmark_names, max_bytes, max_record
         elif isinstance(message, singer.ActivateVersionMessage):
             serialized_messages.append({
                 'action': 'activate_version',
-                'sequence': int(time.time() * 1000)})
+                'sequence': generate_sequence(idx, max_records)
 
     body = {
         'table_name': messages[0].stream,
