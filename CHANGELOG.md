@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.7.4
+  * Generate unique sequence numbers based on the current time millis with an appended zero-padded message number
+
 ## 1.7.3
   * Update to singer-python==5.0.15 to use the change to `RecordMessage.asdict` for serialization of `time_extracted`
 
