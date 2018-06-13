@@ -288,6 +288,7 @@ def serialize(messages, schema, key_names, bookmark_names, max_bytes, max_record
             serialized_messages.append({
                 'action': 'activate_version',
                 'sequence': generate_sequence(idx, max_records)
+            })
 
     body = {
         'table_name': messages[0].stream,
