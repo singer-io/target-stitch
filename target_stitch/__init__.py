@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# pylint: disable=too-many-arguments
 
 '''
 Target for Stitch API.
@@ -163,7 +164,12 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
         LOGGER.info("Sending batch with %d messages for table %s to %s",
                     len(messages), messages[0].stream, self.stitch_url)
         with TIMINGS.mode('serializing'):
-            bodies = serialize(messages, schema, key_names, bookmark_names, self.max_batch_bytes, self.max_batch_records)
+            bodies = serialize(messages,
+                               schema,
+                               key_names,
+                               bookmark_names,
+                               self.max_batch_bytes,
+                               self.max_batch_records)
 
         LOGGER.debug('Split batch into %d requests', len(bodies))
         for i, body in enumerate(bodies):
@@ -254,6 +260,8 @@ class ValidatingHandler(object): # pylint: disable=too-few-public-methods
         LOGGER.info('Batch is valid')
 
 def generate_sequence(message_num, max_records):
+    '''Generates a unique sequence number based on the current time millis
+       with a zero-padded message number based on the magnitude of max_records.'''
     sequence_base = str(int(time.time() * SEQUENCE_MULTIPLIER))
 
     # add an extra order of magnitude to account for the fact that we can
@@ -496,7 +504,9 @@ def main_impl():
 
     handlers = []
     if args.output_file:
-        handlers.append(LoggingHandler(args.output_file, args.max_batch_bytes, args.max_batch_records))
+        handlers.append(LoggingHandler(args.output_file,
+                                       args.max_batch_bytes,
+                                       args.max_batch_records))
     if args.dry_run:
         handlers.append(ValidatingHandler())
     elif not args.config:
@@ -514,7 +524,10 @@ def main_impl():
                         'To disable sending anonymous usage data, set ' +
                         'the config parameter "disable_collection" to true')
             Thread(target=collect).start()
-        handlers.append(StitchHandler(token, stitch_url, args.max_batch_bytes, args.max_batch_records))
+        handlers.append(StitchHandler(token,
+                                      stitch_url,
+                                      args.max_batch_bytes,
+                                      args.max_batch_records))
 
     # queue = Queue(args.max_batch_records)
     reader = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
