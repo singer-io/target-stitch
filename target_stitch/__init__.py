@@ -38,6 +38,7 @@ StreamMeta = namedtuple('StreamMeta', ['schema', 'key_properties', 'bookmark_pro
 DEFAULT_STITCH_URL = 'https://api.stitchdata.com/v2/import/batch'
 DEFAULT_MAX_BATCH_BYTES = 4000000
 DEFAULT_MAX_BATCH_RECORDS = 20000
+SEQUENCE_MULTIPLIER = 1000
 
 class TargetStitchException(Exception):
     '''A known exception for which we don't need to print a stack trace'''
@@ -118,11 +119,12 @@ def _log_backoff(details):
 class StitchHandler(object): # pylint: disable=too-few-public-methods
     '''Sends messages to Stitch.'''
 
-    def __init__(self, token, stitch_url, max_batch_bytes):
+    def __init__(self, token, stitch_url, max_batch_bytes, max_batch_records):
         self.token = token
         self.stitch_url = stitch_url
         self.session = requests.Session()
         self.max_batch_bytes = max_batch_bytes
+        self.max_batch_records = max_batch_records
 
     def headers(self):
         '''Return the headers based on the token'''
@@ -161,7 +163,7 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
         LOGGER.info("Sending batch with %d messages for table %s to %s",
                     len(messages), messages[0].stream, self.stitch_url)
         with TIMINGS.mode('serializing'):
-            bodies = serialize(messages, schema, key_names, bookmark_names, self.max_batch_bytes)
+            bodies = serialize(messages, schema, key_names, bookmark_names, self.max_batch_bytes, self.max_batch_records)
 
         LOGGER.debug('Split batch into %d requests', len(bodies))
         for i, body in enumerate(bodies):
@@ -206,9 +208,10 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
 
 class LoggingHandler(object):  # pylint: disable=too-few-public-methods
     '''Logs records to a local output file.'''
-    def __init__(self, output_file, max_batch_bytes):
+    def __init__(self, output_file, max_batch_bytes, max_batch_records):
         self.output_file = output_file
         self.max_batch_bytes = max_batch_bytes
+        self.max_batch_records = max_batch_records
 
     def handle_batch(self, messages, schema, key_names, bookmark_names=None):
         '''Handles a batch of messages by saving them to a local output file.
@@ -224,7 +227,8 @@ class LoggingHandler(object):  # pylint: disable=too-few-public-methods
                                            schema,
                                            key_names,
                                            bookmark_names,
-                                           self.max_batch_bytes)):
+                                           self.max_batch_bytes,
+                                           self.max_batch_records)):
             LOGGER.debug("Request body %d is %d bytes", i, len(body))
             self.output_file.write(body)
             self.output_file.write('\n')
@@ -249,7 +253,17 @@ class ValidatingHandler(object): # pylint: disable=too-few-public-methods
                                     i, k))
         LOGGER.info('Batch is valid')
 
-def serialize(messages, schema, key_names, bookmark_names, max_bytes):
+def generate_sequence(message_num, max_records):
+    sequence_base = str(int(time.time() * SEQUENCE_MULTIPLIER))
+
+    # add an extra order of magnitude to account for the fact that we can
+    # actually accept more than the max record count
+    fill = len(str(10 * max_records))
+    sequence_suffix = str(message_num).zfill(fill)
+
+    return int(sequence_base + sequence_suffix)
+
+def serialize(messages, schema, key_names, bookmark_names, max_bytes, max_records):
     '''Produces request bodies for Stitch.
 
     Builds a request body consisting of all the messages. Serializes it as
@@ -258,12 +272,13 @@ def serialize(messages, schema, key_names, bookmark_names, max_bytes):
 
     '''
     serialized_messages = []
-    for message in messages:
+    for idx, message in enumerate(messages):
         if isinstance(message, singer.RecordMessage):
             record_message = {
                 'action': 'upsert',
                 'data': message.record,
-                'sequence': int(time.time() * 1000)}
+                'sequence': generate_sequence(idx, max_records)
+            }
 
             if message.time_extracted:
                 record_message['time_extracted'] = singer.utils.strftime(message.time_extracted)
@@ -298,8 +313,8 @@ def serialize(messages, schema, key_names, bookmark_names, max_bytes):
                 max_bytes // 1000000))
 
     pivot = len(messages) // 2
-    l_half = serialize(messages[:pivot], schema, key_names, bookmark_names, max_bytes)
-    r_half = serialize(messages[pivot:], schema, key_names, bookmark_names, max_bytes)
+    l_half = serialize(messages[:pivot], schema, key_names, bookmark_names, max_bytes, max_records)
+    r_half = serialize(messages[pivot:], schema, key_names, bookmark_names, max_bytes, max_records)
     return l_half + r_half
 
 
@@ -480,7 +495,7 @@ def main_impl():
 
     handlers = []
     if args.output_file:
-        handlers.append(LoggingHandler(args.output_file, args.max_batch_bytes))
+        handlers.append(LoggingHandler(args.output_file, args.max_batch_bytes, args.max_batch_records))
     if args.dry_run:
         handlers.append(ValidatingHandler())
     elif not args.config:
@@ -498,7 +513,7 @@ def main_impl():
                         'To disable sending anonymous usage data, set ' +
                         'the config parameter "disable_collection" to true')
             Thread(target=collect).start()
-        handlers.append(StitchHandler(token, stitch_url, args.max_batch_bytes))
+        handlers.append(StitchHandler(token, stitch_url, args.max_batch_bytes, args.max_batch_records))
 
     # queue = Queue(args.max_batch_records)
     reader = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
