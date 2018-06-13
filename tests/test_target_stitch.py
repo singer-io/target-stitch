@@ -248,7 +248,7 @@ class TestSerialize(unittest.TestCase):
         self.messages.append(ActivateVersionMessage(stream='colors', version=1))
 
     def serialize_with_limit(self, limit):
-        return target_stitch.serialize(self.messages, self.schema, self.key_names, self.bookmark_names, limit)
+        return target_stitch.serialize(self.messages, self.schema, self.key_names, self.bookmark_names, limit, target_stitch.DEFAULT_MAX_BATCH_RECORDS)
 
     def unpack_colors(self, request_bodies):
         colors = []
@@ -272,7 +272,7 @@ class TestSerialize(unittest.TestCase):
         data = 'a' * 4000000
         message = RecordMessage(stream='colors', record=data)
         with self.assertRaisesRegex(target_stitch.BatchTooLargeException, re.compile('the Stitch API limit of 4 Mb')):
-            target_stitch.serialize([message], self.schema, self.key_names, self.bookmark_names, 4000000)
+            target_stitch.serialize([message], self.schema, self.key_names, self.bookmark_names, 4000000, target_stitch.DEFAULT_MAX_BATCH_RECORDS)
 
     def test_does_not_drop_records(self):
         expected = [
@@ -297,7 +297,7 @@ class TestSerialize(unittest.TestCase):
 
         record = [RecordMessage("greetings",'{greeting: "hi"}', time_extracted=test_time)]
         schema = '{"type": "object", "properties": {"greeting": {"type": "string"}}}'
-        batch = target_stitch.serialize(record, schema, [], [], 1000)[0]
+        batch = target_stitch.serialize(record, schema, [], [], 1000, target_stitch.DEFAULT_MAX_BATCH_RECORDS)[0]
         actual = json.loads(batch)["messages"][0]["time_extracted"]
 
         self.assertEqual(expected, actual)

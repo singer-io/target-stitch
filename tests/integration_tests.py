@@ -16,7 +16,10 @@ def token():
 
 class IntegrationTest(unittest.TestCase):
     def setUp(self):
-        handler = StitchHandler(token(), DEFAULT_STITCH_URL, 4000000)
+        handler = StitchHandler(token(),
+                                DEFAULT_STITCH_URL,
+                                target_stitch.DEFAULT_MAX_BATCH_BYTES,
+                                target_stitch.DEFAULT_MAX_BATCH_RECORDS)
         out = io.StringIO()
         self.target_stitch = target_stitch.TargetStitch(
             [handler], out, 4000000, 20000, 100000)
@@ -35,7 +38,10 @@ class TestNoToken(unittest.TestCase):
 
     def setUp(self):
         token = None
-        handler = StitchHandler(token, DEFAULT_STITCH_URL, 4000000)
+        handler = StitchHandler(token,
+                                DEFAULT_STITCH_URL,
+                                target_stitch.DEFAULT_MAX_BATCH_BYTES,
+                                target_stitch.DEFAULT_MAX_BATCH_RECORDS)
         out = io.StringIO()
         self.target_stitch = target_stitch.TargetStitch(
             [handler], out, 4000000, 20000, 100000)
