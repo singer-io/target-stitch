@@ -36,6 +36,8 @@ LOGGER = singer.get_logger().getChild('target_stitch')
 StreamMeta = namedtuple('StreamMeta', ['schema', 'key_properties', 'bookmark_properties'])
 
 DEFAULT_STITCH_URL = 'https://api.stitchdata.com/v2/import/batch'
+DEFAULT_MAX_BATCH_BYTES = 4000000
+DEFAULT_MAX_BATCH_RECORDS = 20000
 
 class TargetStitchException(Exception):
     '''A known exception for which we don't need to print a stack trace'''
@@ -466,8 +468,8 @@ def main_impl():
         '-q', '--quiet',
         help='Suppress info-level logging',
         action='store_true')
-    parser.add_argument('--max-batch-records', type=int, default=20000)
-    parser.add_argument('--max-batch-bytes', type=int, default=4000000)
+    parser.add_argument('--max-batch-records', type=int, default=DEFAULT_MAX_BATCH_RECORDS)
+    parser.add_argument('--max-batch-bytes', type=int, default=DEFAULT_MAX_BATCH_BYTES)
     parser.add_argument('--batch-delay-seconds', type=float, default=300.0)
     args = parser.parse_args()
 
