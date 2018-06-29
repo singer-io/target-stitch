@@ -250,13 +250,19 @@ class ValidatingHandler(object): # pylint: disable=too-few-public-methods
         for i, message in enumerate(messages):
             if isinstance(message, singer.RecordMessage):
                 data = float_to_decimal(message.record)
-                validator.validate(data)
-                if key_names:
-                    for k in key_names:
-                        if k not in data:
-                            raise TargetStitchException(
-                                'Message {} is missing key property {}'.format(
-                                    i, k))
+                try:
+                    validator.validate(data)
+                    if key_names:
+                        for k in key_names:
+                            if k not in data:
+                                raise TargetStitchException(
+                                    'Message {} is missing key property {}'.format(
+                                        i, k))
+                except Exception as e:
+                    raise TargetStitchException(
+                                    'Record does not pass schema validation: {}'.format(e))
+
+
         LOGGER.info('Batch is valid')
 
 def generate_sequence(message_num, max_records):
