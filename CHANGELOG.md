@@ -1,4 +1,6 @@
 # Changelog
+## 1.7.5
+  * Throw an error in the ValidationHandler if schema validation fails.
 
 ## 1.7.4
   * Generate unique sequence numbers based on the current time millis with an appended zero-padded message number
