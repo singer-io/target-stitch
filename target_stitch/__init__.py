@@ -260,7 +260,7 @@ class ValidatingHandler(object): # pylint: disable=too-few-public-methods
                                         i, k))
                 except Exception as e:
                     raise TargetStitchException(
-                                    'Record does not pass schema validation: {}'.format(e))
+                        'Record does not pass schema validation: {}'.format(e))
 
 
         LOGGER.info('Batch is valid')
