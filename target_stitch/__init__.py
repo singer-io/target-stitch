@@ -10,7 +10,7 @@ import copy
 import gzip
 import http.client
 import io
-import json
+import simplejson as json
 import os
 import re
 import sys
@@ -316,7 +316,7 @@ def serialize(messages, schema, key_names, bookmark_names, max_bytes, max_record
     if bookmark_names:
         body['bookmark_names'] = bookmark_names
 
-    serialized = json.dumps(body)
+    serialized = json.dumps(body, use_decimal=True)
     LOGGER.debug('Serialized %d messages into %d bytes', len(messages), len(serialized))
 
     if len(serialized) < max_bytes:
