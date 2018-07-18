@@ -316,6 +316,13 @@ def serialize(messages, schema, key_names, bookmark_names, max_bytes, max_record
     if bookmark_names:
         body['bookmark_names'] = bookmark_names
 
+
+    # We are not using Decimals for parsing here. We recognize that
+    # exposes data to potential rounding errors. However, the Stitch API
+    # as it is implemented currently is also subject to rounding errors.
+    # This will affect very few data points and we have chosen to leave
+    # conversion as is for now.
+
     serialized = json.dumps(body)
     LOGGER.debug('Serialized %d messages into %d bytes', len(messages), len(serialized))
 
