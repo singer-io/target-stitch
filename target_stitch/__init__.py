@@ -424,7 +424,6 @@ class TargetStitch:
 
         elif isinstance(message, (singer.RecordMessage, singer.ActivateVersionMessage)):
             if self.messages and (
-                    message.stream != self.messages[0].stream or
                     message.version != self.messages[0].version):
                 self.flush()
             self.messages.append(message)
