@@ -60,7 +60,7 @@ class MemoryReporter(Thread):
             time.sleep(30.0)
 
 
-class Timings(object):
+class Timings:
     '''Gathers timing information for the three main steps of the Tap.'''
     def __init__(self):
         self.last_time = time.time()
@@ -117,7 +117,7 @@ def _log_backoff(details):
         details['wait'], exc)
 
 
-class StitchHandler(object): # pylint: disable=too-few-public-methods
+class StitchHandler: # pylint: disable=too-few-public-methods
     '''Sends messages to Stitch.'''
 
     def __init__(self, token, stitch_url, max_batch_bytes, max_batch_records):
@@ -212,7 +212,7 @@ class StitchHandler(object): # pylint: disable=too-few-public-methods
                     raise TargetStitchException('Error connecting to Stitch')
 
 
-class LoggingHandler(object):  # pylint: disable=too-few-public-methods
+class LoggingHandler:  # pylint: disable=too-few-public-methods
     '''Logs records to a local output file.'''
     def __init__(self, output_file, max_batch_bytes, max_batch_records):
         self.output_file = output_file
@@ -240,7 +240,7 @@ class LoggingHandler(object):  # pylint: disable=too-few-public-methods
             self.output_file.write('\n')
 
 
-class ValidatingHandler(object): # pylint: disable=too-few-public-methods
+class ValidatingHandler: # pylint: disable=too-few-public-methods
     '''Validates input messages against their schema.'''
 
     def handle_batch(self, messages, schema, key_names, bookmark_names=None): # pylint: disable=no-self-use,unused-argument
@@ -340,7 +340,7 @@ def serialize(messages, schema, key_names, bookmark_names, max_bytes, max_record
     return l_half + r_half
 
 
-class TargetStitch(object):
+class TargetStitch:
     '''Encapsulates most of the logic of target-stitch.
 
     Useful for unit testing.

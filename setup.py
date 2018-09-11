@@ -14,8 +14,14 @@ setup(name='target-stitch',
           'mock==2.0.0',
           'requests==2.18.4',
           'singer-python==5.0.15',
-          'psutil==5.3.1'
+          'psutil==5.3.1',
       ],
+      extras_require={
+          'dev': [
+              'nose==1.3.7',
+              'pylint==2.1.1',
+          ]
+      },
       entry_points='''
           [console_scripts]
           target-stitch=target_stitch:main
