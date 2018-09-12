@@ -354,7 +354,7 @@ class TargetStitch:
                  max_batch_bytes,
                  max_batch_records,
                  batch_delay_seconds):
-        self.messages = []
+        self.messages = {}
         self.buffer_size_bytes = 0
         self.state = None
 
@@ -384,15 +384,16 @@ class TargetStitch:
         '''Send all the buffered messages to Stitch.'''
 
         if self.messages:
-            stream_meta = self.stream_meta[self.messages[0].stream]
-            for handler in self.handlers:
-                handler.handle_batch(self.messages,
-                                     stream_meta.schema,
-                                     stream_meta.key_properties,
-                                     stream_meta.bookmark_properties)
-            self.time_last_batch_sent = time.time()
-            self.messages = []
-            self.buffer_size_bytes = 0
+            for stream, messages in self.messages.items():
+                stream_meta = self.stream_meta[stream]
+                for handler in self.handlers:
+                    handler.handle_batch(messages,
+                                         stream_meta.schema,
+                                         stream_meta.key_properties,
+                                         stream_meta.bookmark_properties)
+                    self.time_last_batch_sent = time.time()
+                    self.messages = {}
+                    self.buffer_size_bytes = 0
 
         if self.state:
             line = json.dumps(self.state)
@@ -423,17 +424,23 @@ class TargetStitch:
                 message.bookmark_properties)
 
         elif isinstance(message, (singer.RecordMessage, singer.ActivateVersionMessage)):
-            if self.messages and (
-                    message.version != self.messages[0].version):
+            if message.stream in self.messages and (
+                    message.version != self.messages[message.stream][0].version):
                 self.flush()
-            self.messages.append(message)
+            if message.stream in self.messages:
+                self.messages[message.stream].append(message)
+            else:
+                self.messages[message.stream] = [message]
+
             self.buffer_size_bytes += len(line)
 
             num_bytes = self.buffer_size_bytes
-            num_messages = len(self.messages)
+            num_messages = len(self.messages.get(message.stream))
             num_seconds = time.time() - self.time_last_batch_sent
 
             enough_bytes = num_bytes >= self.max_batch_bytes
+            # We don't need to check all the streams because the moment we
+            # get pushed over the message count limit we'll flush them all
             enough_messages = num_messages >= self.max_batch_records
             enough_time = num_seconds >= self.batch_delay_seconds
             if enough_bytes or enough_messages or enough_time:
