@@ -434,6 +434,19 @@ class TargetStitch:
 
             self.buffer_size_bytes += len(line)
 
+            # The relevant limits are as follows:
+            #
+            # 1. bytes matters in aggregate because we don't want to
+            #    increase the memory usage of the target.
+            #
+            # 2. messages matters per stream because so long as we haven't
+            #    reached the memory ceiling we only care about the stream
+            #    batches down to the request size and each stream batch
+            #    will be sent as a separate request.
+            #
+            # 3. seconds matters in aggregate because we don't want to
+            #    send requests for each stream type separately because
+            #    that would make state tracking much more complicated.
             num_bytes = self.buffer_size_bytes
             num_messages = len(self.messages.get(message.stream))
             num_seconds = time.time() - self.time_last_batch_sent
