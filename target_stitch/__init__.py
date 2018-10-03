@@ -445,6 +445,15 @@ class TargetStitch:
         elif isinstance(message, singer.StateMessage):
             self.state = message.value
 
+            # only check time since state message does not increase num_messages or
+            # num_bytes for the batch
+            num_seconds = time.time() - self.time_last_batch_sent
+            if num_seconds >= self.batch_delay_seconds:
+                LOGGER.debug('Flushing %d bytes, %d messages, after %.2f seconds',
+                             self.buffer_size_bytes, len(self.messages), num_seconds)
+                self.flush()
+
+
 
     def consume(self, reader):
         '''Consume all the lines from the queue, flushing when done.'''
