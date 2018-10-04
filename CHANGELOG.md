@@ -1,4 +1,8 @@
 # Changelog
+
+## 1.7.6
+  * Flush buffer if enough time has passed when state message is received [#57](https://github.com/singer-io/target-stitch/pull/57)
+
 ## 1.7.5
   * Throw an error in the ValidationHandler if schema validation fails.
 
