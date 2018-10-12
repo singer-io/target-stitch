@@ -262,8 +262,9 @@ class ValidatingHandler: # pylint: disable=too-few-public-methods
                     raise TargetStitchException(
                         'Record does not pass schema validation: {}'.format(e))
 
-
-        LOGGER.info('Batch is valid')
+        LOGGER.info('%s (%s): Batch is valid',
+                    message.stream,
+                    len(messages))
 
 def generate_sequence(message_num, max_records):
     '''Generates a unique sequence number based on the current time millis
