@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.8.1
+  * Updates `requests` to version `2.20.0` in response to CVE 2018-18074
+
 ## 1.7.6
   * Flush buffer if enough time has passed when state message is received [#57](https://github.com/singer-io/target-stitch/pull/57)
 
