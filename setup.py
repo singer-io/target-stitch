@@ -15,6 +15,10 @@ setup(name='target-stitch',
           'requests==2.20.0',
           'singer-python==5.0.15',
           'psutil==5.3.1',
+          'kafka-python==1.4.4',
+          'python-snappy==0.5.3',
+	  'boto==2.49.0',
+	  'transit-python==0.8.302',
       ],
       extras_require={
           'dev': [

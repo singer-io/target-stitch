@@ -30,6 +30,14 @@ from jsonschema import ValidationError, Draft4Validator, FormatChecker
 import pkg_resources
 import singer
 import backoff
+import boto
+from boto.s3.key import Key
+import random
+import string
+from io import BytesIO, StringIO
+from transit.writer import Writer
+import dateutil.tz
+from jsonschema import ValidationError, Draft4Validator, FormatChecker
 
 LOGGER = singer.get_logger().getChild('target_stitch')
 
@@ -37,7 +45,7 @@ LOGGER = singer.get_logger().getChild('target_stitch')
 StreamMeta = namedtuple('StreamMeta', ['schema', 'key_properties', 'bookmark_properties'])
 
 DEFAULT_STITCH_URL = 'https://api.stitchdata.com/v2/import/batch'
-DEFAULT_MAX_BATCH_BYTES = 4000000
+DEFAULT_MAX_BATCH_BYTES = 10000000
 DEFAULT_MAX_BATCH_RECORDS = 20000
 SEQUENCE_MULTIPLIER = 1000
 
@@ -66,7 +74,12 @@ class Timings:
         self.last_time = time.time()
         self.timings = {
             'serializing': 0.0,
-            'posting': 0.0,
+            'post_to_s3': 0.0,
+            'post_to_gate': 0.0,
+            'marshall_date_times': 0.0,
+            'marshall_decimals': 0.0,
+            'validate_records': 0.0,
+            'transit_encode': 0.0,
             None: 0.0
         }
 
@@ -85,10 +98,15 @@ class Timings:
 
     def log_timings(self):
         '''We call this with every flush to print out the accumulated timings'''
-        LOGGER.debug('Timings: unspecified: %.3f; serializing: %.3f; posting: %.3f;',
-                     self.timings[None],
-                     self.timings['serializing'],
-                     self.timings['posting'])
+        LOGGER.info('Timings: unspecified: %.3f; serializing: %.3f; post_to_gate: %.3f; marshall_decimals: %.3f, validate_records: %.3f, marshall_date_times: %.3f, transit_encode: %.3f, post_to_s3: %.3f',
+                    self.timings[None],
+                    self.timings['serializing'],
+                    self.timings['post_to_gate'],
+                    self.timings['marshall_decimals'],
+                    self.timings['validate_records'],
+                    self.timings['marshall_date_times'],
+                    self.timings['transit_encode'],
+                    self.timings['post_to_s3'])
 
 TIMINGS = Timings()
 
@@ -126,6 +144,29 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         self.session = requests.Session()
         self.max_batch_bytes = max_batch_bytes
         self.max_batch_records = max_batch_records
+        self.s3_conn = boto.connect_s3()
+        self.bucket = self.s3_conn.get_bucket('vm-spool')
+
+    def ensure_multipleof_is_decimal(self, schema):
+        '''Ensure multipleOf (if exists) points to a Decimal.
+
+        Recursively walks the given schema (which must be dict), converting
+        every instance of the multipleOf keyword to a Decimal.
+
+        This modifies the input schema and also returns it.
+
+        '''
+        if 'multipleOf' in schema:
+            schema['multipleOf'] = Decimal(str(schema['multipleOf']))
+
+        if 'properties' in schema:
+            for k, v in schema['properties'].items():
+                self.ensure_multipleof_is_decimal(v)
+
+        if 'items' in schema:
+            self.ensure_multipleof_is_decimal(schema['items'])
+
+        return schema
 
     def headers(self):
         '''Return the headers based on the token'''
@@ -152,7 +193,102 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         return response
 
 
-    def handle_batch(self, messages, schema, key_names, bookmark_names=None):
+    def handle_batch(self, messages, buffer_size_bytes, schema, key_names, bookmark_names=None):
+        if (buffer_size_bytes >= (4 * 1024 * 1024)):
+            self.handle_s3(messages, schema, key_names, bookmark_names=None)
+        else:
+            self.handle_gate(messages, schema, key_names, bookmark_names=None)
+
+    @staticmethod
+    def encode_transit(records):
+        '''Returns the records serialized as Transit/json in utf8'''
+        #with StringIO() as buf:
+        #    writer = Writer(buf, "json_verbose")
+        with BytesIO() as buf:
+            writer = Writer(buf, "msgpack")
+            for r in records:
+                writer.write(r)
+            return buf.getvalue()
+            # return buf.getvalue().encode('utf8')
+
+    def marshall_data(self, schema, data, schema_predicate, data_marshaller):
+        if schema is None:
+            return data
+
+        if "properties" in schema and isinstance(data, dict):
+            for key, subschema in schema["properties"].items():
+                if key in data:
+                    data[key] = self.marshall_data(subschema, data[key], schema_predicate, data_marshaller)
+            return data
+
+        if "items" in schema and isinstance(data, list):
+            subschema = schema["items"]
+            for i in range(len(data)):
+                data[i] = self.marshall_data(subschema, data[i], schema_predicate, data_marshaller)
+            return data
+
+        if schema_predicate(schema, data):
+            return data_marshaller(data)
+
+        return data
+
+    def marshall_date_times(self, schema, data):
+        def strptime(d):
+            """
+            The target should only encounter date-times consisting of the formats below.  They are compatible with singer-python's strftime function.
+            """
+            try:
+                return datetime.strptime(d, "%Y-%m-%dT%H:%M:%SZ")
+            except:
+                return datetime.strptime(d, "%Y-%m-%dT%H:%M:%S.%fZ")
+
+        return self.marshall_data(schema, data,
+                                  lambda s, d: "format" in s and s["format"] == 'date-time' and isinstance(d, str),
+                                  lambda d: strptime(d).replace(tzinfo=dateutil.tz.gettz("UTC")))
+
+    def marshall_decimals(self, schema, data):
+        return self.marshall_data(schema, data,
+                                  lambda s, d: "multipleOf" in s and isinstance(d, (float, int)),
+                                  lambda d: Decimal(str(d)))
+
+    @staticmethod
+    def json_serializer(message):
+        return json.dumps(message.record)
+
+    def handle_s3(self, messages, schema, key_names, bookmark_names=None):
+        schema = self.ensure_multipleof_is_decimal(schema)
+
+        key_name = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(10))
+
+        validator  = Draft4Validator(schema, format_checker=FormatChecker())
+        LOGGER.info("Sending batch with %d messages for table %s to s3 %s",
+                    len(messages), messages[0].stream, key_name)
+        k = Key(self.bucket)
+        k.key = key_name
+
+        # convert numbers to decimals for records HERE
+        with TIMINGS.mode('marshall_decimals'):
+            records = [self.marshall_decimals(schema, m.record) for m in messages]
+
+        #TODO: validator schema itself
+        # validate all messages against schema
+        with TIMINGS.mode('validate_records'):
+            for rec in records:
+                try:
+                    validator.validate(rec)
+                except ValidationError as exc:
+                    raise ValueError('Record({}) does not conform to schema. Please see logs for details.{}'.format(rec)) from exc
+
+        with TIMINGS.mode('marshall_date_times'):
+            records = [self.marshall_date_times(schema, m.record) for m in messages]
+
+        with TIMINGS.mode('transit_encode'):
+            data = self.encode_transit(records)
+
+        with TIMINGS.mode('post_to_s3'):
+            k.set_contents_from_string(data)
+
+    def handle_gate(self, messages, schema, key_names, bookmark_names=None):
         '''Handle messages by sending them to Stitch.
 
         If the serialized form of the messages is too large to fit into a
@@ -161,6 +297,7 @@ class StitchHandler: # pylint: disable=too-few-public-methods
 
         '''
 
+        LOGGER.info('json schema: %s', schema)
         LOGGER.info("Sending batch with %d messages for table %s to %s",
                     len(messages), messages[0].stream, self.stitch_url)
         with TIMINGS.mode('serializing'):
@@ -173,7 +310,7 @@ class StitchHandler: # pylint: disable=too-few-public-methods
 
         LOGGER.debug('Split batch into %d requests', len(bodies))
         for i, body in enumerate(bodies):
-            with TIMINGS.mode('posting'):
+            with TIMINGS.mode('post_to_gate'):
                 LOGGER.debug('Request %d of %d is %d bytes', i + 1, len(bodies), len(body))
                 try:
                     response = self.send(body)
@@ -211,7 +348,6 @@ class StitchHandler: # pylint: disable=too-few-public-methods
                     LOGGER.exception(exc)
                     raise TargetStitchException('Error connecting to Stitch')
 
-
 class LoggingHandler:  # pylint: disable=too-few-public-methods
     '''Logs records to a local output file.'''
     def __init__(self, output_file, max_batch_bytes, max_batch_records):
@@ -219,7 +355,7 @@ class LoggingHandler:  # pylint: disable=too-few-public-methods
         self.max_batch_bytes = max_batch_bytes
         self.max_batch_records = max_batch_records
 
-    def handle_batch(self, messages, schema, key_names, bookmark_names=None):
+    def handle_batch(self, messages, buffer_size_bytes, schema, key_names, bookmark_names=None):
         '''Handles a batch of messages by saving them to a local output file.
 
         Serializes records in the same way StitchHandler does, so the
@@ -243,7 +379,7 @@ class LoggingHandler:  # pylint: disable=too-few-public-methods
 class ValidatingHandler: # pylint: disable=too-few-public-methods
     '''Validates input messages against their schema.'''
 
-    def handle_batch(self, messages, schema, key_names, bookmark_names=None): # pylint: disable=no-self-use,unused-argument
+    def handle_batch(self, messages, buffer_size_bytes, schema, key_names, bookmark_names=None): # pylint: disable=no-self-use,unused-argument
         '''Handles messages by validating them against schema.'''
         schema = float_to_decimal(schema)
         validator = Draft4Validator(schema, format_checker=FormatChecker())
@@ -388,6 +524,7 @@ class TargetStitch:
             stream_meta = self.stream_meta[self.messages[0].stream]
             for handler in self.handlers:
                 handler.handle_batch(self.messages,
+                                     self.buffer_size_bytes,
                                      stream_meta.schema,
                                      stream_meta.key_properties,
                                      stream_meta.bookmark_properties)
@@ -400,7 +537,9 @@ class TargetStitch:
             self.state_writer.write("{}\n".format(line))
             self.state_writer.flush()
             self.state = None
-            TIMINGS.log_timings()
+
+        TIMINGS.log_timings()
+
 
     def handle_line(self, line):
 
@@ -435,10 +574,8 @@ class TargetStitch:
             num_messages = len(self.messages)
             num_seconds = time.time() - self.time_last_batch_sent
 
-            enough_bytes = num_bytes >= self.max_batch_bytes
-            enough_messages = num_messages >= self.max_batch_records
-            enough_time = num_seconds >= self.batch_delay_seconds
-            if enough_bytes or enough_messages or enough_time:
+            #don't run out of memory
+            if num_bytes >= self.max_batch_bytes:
                 LOGGER.debug('Flushing %d bytes, %d messages, after %.2f seconds',
                              num_bytes, num_messages, num_seconds)
                 self.flush()
