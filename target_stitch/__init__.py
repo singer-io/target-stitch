@@ -120,18 +120,6 @@ def serialize(messages, schema, key_names, bookmark_names, max_bytes, max_record
     return l_half + r_half
 
 
-def float_to_decimal(value):
-    '''Walk the given data structure and turn all instances of float into
-    double.'''
-    if isinstance(value, float):
-        return Decimal(str(value))
-    if isinstance(value, list):
-        return [float_to_decimal(child) for child in value]
-    if isinstance(value, dict):
-        return {k: float_to_decimal(v) for k, v in value.items()}
-    return value
-
-
 def _log_backoff(details):
     (_, exc, _) = sys.exc_info()
     LOGGER.info(
@@ -176,6 +164,42 @@ def use_batch_url(url):
         result = url.replace('/import/push', '/import/batch')
     LOGGER.info('Using Stitch import URL %s', result)
     return result
+
+
+def marshall_data(schema, data, schema_predicate, data_marshaller):
+    if schema is None:
+        return data
+
+    if "properties" in schema and isinstance(data, dict):
+        for key, subschema in schema["properties"].items():
+            if key in data:
+                data[key] = marshall_data(subschema, data[key], schema_predicate, data_marshaller)
+        return data
+
+    if "items" in schema and isinstance(data, list):
+        subschema = schema["items"]
+        for i in range(len(data)):
+            data[i] = marshall_data(subschema, data[i], schema_predicate, data_marshaller)
+        return data
+
+    if schema_predicate(schema, data):
+        return data_marshaller(data)
+
+    return data
+
+
+def marshall_date_times(schema, data):
+    return marshall_data(
+        schema, data,
+        lambda s, d: "format" in s and s["format"] == 'date-time' and isinstance(d, str),
+        lambda d: strptime(d))
+
+
+def marshall_decimals(schema, data):
+    return marshall_data(
+        schema, data,
+        lambda s, d: "multipleOf" in s and isinstance(d, (float, int)),
+        lambda d: Decimal(str(d)))
 
 
 class TargetStitchException(Exception):
@@ -281,13 +305,25 @@ class StitchHandler: # pylint: disable=too-few-public-methods
                           on_backoff=_log_backoff)
     def send(self, data):
         '''Send the given data to Stitch, retrying on exceptions'''
-        url = self.stitch_url
-        headers = self.headers()
-        ssl_verify = True
-        if os.environ.get("TARGET_STITCH_SSL_VERIFY") == 'false':
-            ssl_verify = False
+        response = self.session.post(self.stitch_url,
+                                     headers=self.headers(),
+                                     data=data,
+                                     verify=ssl_verify)
+        response.raise_for_status()
+        return response
 
-        response = self.session.post(url, headers=headers, data=data, verify=ssl_verify)
+    @backoff.on_exception(backoff.expo,
+                          RequestException,
+                          giveup=singer.utils.exception_is_4xx,
+                          max_tries=8,
+                          on_backoff=_log_backoff)
+    def post_to_spool(self, body):
+        '''Send the given data to the spool, retrying on exceptions'''
+        ssl_verify = os.environ.get("TARGET_STITCH_SSL_VERIFY") != 'false'
+        response = self.session.post(STITCH_SPOOL_URL,
+                                     headers=self.headers(),
+                                     json=body,
+                                     verify=ssl_verify)
         response.raise_for_status()
         return response
 
@@ -297,48 +333,6 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         else:
             self.handle_gate(messages, schema, key_names, bookmark_names=None)
 
-    @staticmethod
-    def encode_transit(records):
-        '''Returns the records serialized as Transit/json in utf8'''
-        with io.BytesIO() as buf:
-            writer = Writer(buf, "msgpack")
-            for r in records:
-                writer.write(r)
-            return buf.getvalue()
-
-    def marshall_data(self, schema, data, schema_predicate, data_marshaller):
-        if schema is None:
-            return data
-
-        if "properties" in schema and isinstance(data, dict):
-            for key, subschema in schema["properties"].items():
-                if key in data:
-                    data[key] = self.marshall_data(subschema, data[key], schema_predicate, data_marshaller)
-            return data
-
-        if "items" in schema and isinstance(data, list):
-            subschema = schema["items"]
-            for i in range(len(data)):
-                data[i] = self.marshall_data(subschema, data[i], schema_predicate, data_marshaller)
-            return data
-
-        if schema_predicate(schema, data):
-            return data_marshaller(data)
-
-        return data
-
-    def marshall_date_times(self, schema, data):
-        return self.marshall_data(
-            schema, data,
-            lambda s, d: "format" in s and s["format"] == 'date-time' and isinstance(d, str),
-            lambda d: strptime(d))
-
-    def marshall_decimals(self, schema, data):
-        return self.marshall_data(
-            schema, data,
-            lambda s, d: "multipleOf" in s and isinstance(d, (float, int)),
-            lambda d: Decimal(str(d)))
-
     def handle_s3(self, messages, schema, key_names, bookmark_names=None):
         # TODO: When do we start tracking the persist time?
         start_persist = time.time()
@@ -347,12 +341,12 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         num_records = len(messages)
 
         schema = self.ensure_multipleof_is_decimal(schema)
+        validator = Draft4Validator(schema, format_checker=FormatChecker())
 
         with TIMINGS.mode('marshall_decimals'):
-            records = [self.marshall_decimals(schema, m.record) for m in messages]
+            records = [marshall_decimals(schema, m.record) for m in messages]
 
         with TIMINGS.mode('validate_records'):
-            validator = Draft4Validator(schema, format_checker=FormatChecker())
             for rec in records:
                 try:
                     validator.validate(rec)
@@ -364,7 +358,7 @@ class StitchHandler: # pylint: disable=too-few-public-methods
                                      .format(schema)) from exc
 
         with TIMINGS.mode('marshall_date_times'):
-            records = [self.marshall_date_times(schema, m.record) for m in messages]
+            records = [marshall_date_times(schema, m.record) for m in messages]
 
         if bookmark_names:
             # We only support one bookmark key
@@ -380,7 +374,11 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         # TODO: add _sdc fields to records?
 
         with TIMINGS.mode('transit_encode'):
-            data = self.encode_transit(records)
+            with io.BytesIO() as buf:
+                writer = Writer(buf, "msgpack")
+                for r in records:
+                    writer.write(r)
+                data = buf.getvalue()
 
         key_name = "{:07d}/{}-{}-{}".format(
             CLIENT_ID,
@@ -418,8 +416,7 @@ class StitchHandler: # pylint: disable=too-few-public-methods
                 "format_version": "0.8.281",
                 "persist_duration_millis": time.time() - start_persist,
             }
-            # resp = requests.post(STITCH_SPOOL_URL, json=body)
-            # resp.raise_for_status()
+            self.post_to_spool(body)
 
     def handle_gate(self, messages, schema, key_names, bookmark_names=None):
         '''Handle messages by sending them to Stitch.
@@ -513,26 +510,23 @@ class ValidatingHandler: # pylint: disable=too-few-public-methods
 
     def handle_batch(self, messages, buffer_size_bytes, schema, key_names, bookmark_names=None): # pylint: disable=no-self-use,unused-argument
         '''Handles messages by validating them against schema.'''
-        schema = float_to_decimal(schema)
+        schema = ensure_multipleof_is_decimal(schema)
         validator = Draft4Validator(schema, format_checker=FormatChecker())
         for i, message in enumerate(messages):
             if isinstance(message, singer.RecordMessage):
-                data = float_to_decimal(message.record)
+                data = marshall_decimals(schema, message.record)
                 try:
                     validator.validate(data)
                     if key_names:
                         for k in key_names:
                             if k not in data:
-                                raise TargetStitchException(
-                                    'Message {} is missing key property {}'.format(
-                                        i, k))
+                                raise Exception('Message {} is missing key property {}'.format(i, k))
+
                 except Exception as e:
                     raise TargetStitchException(
                         'Record does not pass schema validation: {}'.format(e))
 
-        LOGGER.info('%s (%s): Batch is valid',
-                    message.stream,
-                    len(messages))
+        LOGGER.info('%s (%s): Batch is valid', message.stream, len(messages))
 
 
 class TargetStitch:
