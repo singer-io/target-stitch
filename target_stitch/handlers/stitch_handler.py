@@ -2,19 +2,33 @@ import singer
 import backoff
 import requests
 import boto
+from boto.s3.key import Key
 import time
 import json
+import io
 import os
 import sys
+import pytz
+import uuid
+import hashlib
+
+from transit.writer import Writer
+from datetime import datetime
+from decimal import Decimal
 from requests.exceptions import RequestException, HTTPError
 from target_stitch.timings import Timings
 from target_stitch.exceptions import TargetStitchException
+from jsonschema import SchemaError, ValidationError, Draft4Validator, FormatChecker
 
 LOGGER = singer.get_logger().getChild('target_stitch')
 MESSAGE_VERSION=2
-PIPELINE_VERSION=2
+PIPELINE_VERSION='2'
+STITCH_SPOOL_URL = "{}/spool/private/v1/clients/{}/batches"
 
 TIMINGS = Timings()
+
+def now():
+    return singer.utils.strftime(singer.utils.now())
 
 def _log_backoff(details):
     (_, exc, _) = sys.exc_info()
@@ -22,13 +36,44 @@ def _log_backoff(details):
         'Error sending data to Stitch. Sleeping %d seconds before trying again: %s',
         details['wait'], exc)
 
+def strptime(d):
+    """
+    The target should only encounter date-times consisting of the formats below.
+    They are compatible with singer-python's strftime function.
+    """
+    try:
+        rtn = datetime.strptime(d, "%Y-%m-%dT%H:%M:%SZ")
+    except:
+        rtn = datetime.strptime(d, "%Y-%m-%dT%H:%M:%S.%fZ")
+
+    return rtn.replace(tzinfo=pytz.UTC)
+
+def ensure_multipleof_is_decimal(schema):
+    '''Ensure multipleOf (if exists) points to a Decimal.
+
+        Recursively walks the given schema (which must be dict), converting
+        every instance of the multipleOf keyword to a Decimal.
+
+        This modifies the input schema and also returns it.
+
+        '''
+    if 'multipleOf' in schema:
+        schema['multipleOf'] = Decimal(str(schema['multipleOf']))
+
+    if 'properties' in schema:
+        for k, v in schema['properties'].items():
+            ensure_multipleof_is_decimal(v)
+
+    if 'items' in schema:
+        ensure_multipleof_is_decimal(schema['items'])
+
+    return schema
+
 
 def determine_table_version(first_message):
-    LOGGER.info("first_message: %s", first_message)
     if first_message and first_message.version is not None:
         return first_message.version
     return None
-
 
 def marshall_data(schema, data, schema_predicate, data_marshaller):
     if schema is None:
@@ -61,22 +106,6 @@ def transit_encode(pipeline_messages):
             data = buf.getvalue()
     return data
 
-
-def post_to_s3(data, num_records, table_name):
-    key_name = self.generate_s3_key(data)
-    k = Key(self.bucket)
-    k.key = key_name
-    LOGGER.info("Sending batch with %d messages for table %s to s3 %s",
-                num_records, table_name, key_name)
-
-    with TIMINGS.mode('post_to_s3'):
-        start_persist = time.time()
-        k.set_contents_from_string(data)
-        persist_time = time.time() - start_persist
-
-    return (key_name, persist_time)
-
-
 def marshall_date_times(schema, data):
     return marshall_data(
         schema, data,
@@ -90,22 +119,36 @@ def marshall_decimals(schema, data):
         lambda s, d: "multipleOf" in s and isinstance(d, (float, int)),
         lambda d: Decimal(str(d)))
 
-
-
 class StitchHandler: # pylint: disable=too-few-public-methods
     '''Sends messages to Stitch.'''
 
-    def __init__(self, token, client_id, connection_ns, stitch_url, max_batch_bytes, max_batch_records):
+    def __init__(self, token, client_id, connection_ns, stitch_url, spool_host, spool_s3_bucket, max_batch_bytes, max_batch_records):
         self.token = token
         self.client_id = client_id
         self.connection_ns = connection_ns
         self.stitch_url = stitch_url
+        self.spool_host = spool_host
         self.session = requests.Session()
         self.max_batch_bytes = max_batch_bytes
         self.max_batch_records = max_batch_records
         self.s3_conn = boto.connect_s3()
-        self.bucket = self.s3_conn.get_bucket('vm-spool')
+        self.bucket_name = spool_s3_bucket
+        self.bucket = self.s3_conn.get_bucket(self.bucket_name)
         self.send_methods = {}
+
+    def post_to_s3(self, data, num_records, table_name):
+        key_name = self.generate_s3_key(data)
+        k = Key(self.bucket)
+        k.key = key_name
+        LOGGER.info("Sending batch with %d messages for table %s to s3 %s",
+                    num_records, table_name, key_name)
+
+        with TIMINGS.mode('post_to_s3'):
+            start_persist = time.time()
+            k.set_contents_from_string(data)
+            persist_time = int((time.time() - start_persist) * 1000)
+
+        return (key_name, persist_time)
 
     def generate_sequence(self, message_num):
         '''Generates a unique sequence number based on the current time millis
@@ -119,26 +162,19 @@ class StitchHandler: # pylint: disable=too-few-public-methods
 
         return int(sequence_base + sequence_suffix)
 
-    def serialize_s3_upsert_messages(self, messages, table_name, key_names ):
+    def serialize_s3_upsert_messages(self, records, schema, table_name, key_names ):
         pipeline_messages = []
-        for idx, msg in messages:
+        for idx, msg in enumerate(records):
             with TIMINGS.mode('marshall_date_times'):
-                marshalled_msg = marshall_date_times(schema, msg.record)
-                if isinstance(message, singer.ActivateVersionMessage):
-                    action =  'activate_version'
-                elif isinstance(message, singer.RecordMessage):
-                    action =  'upsert'
-                else:
-                    raise Exception('unrecognized message type')
-
+                marshalled_msg = marshall_date_times(schema, msg)
                 pipeline_messages.append({'message_version' : MESSAGE_VERSION,
                                           'pipeline_version' : PIPELINE_VERSION,
-                                          "timestamps" : {"_rjm_received_at" :  singer.now()},
+                                          "timestamps" : {"_rjm_received_at" :  int(time.time() * 1000)},
                                           'body' : {
-                                              'client_id' : self.client_id,
+                                              'client_id' : int(self.client_id),
                                               'namespace' : self.connection_ns,
                                               'table_name' : table_name,
-                                              'action'     : action,
+                                              'action'     : 'upsert',
                                               'sequence'   : self.generate_sequence(idx),
                                               'key_names'  : key_names,
                                               'data': msg
@@ -178,7 +214,8 @@ class StitchHandler: # pylint: disable=too-few-public-methods
             'key_names': key_names,
             'messages': serialized_messages
         }
-        body['table_version'] = determine_table_version(messages[0])
+        if determine_table_version(messages[0]):
+            body['table_version'] = determine_table_version(messages[0])
 
         if bookmark_names:
             body['bookmark_names'] = bookmark_names
@@ -207,32 +244,11 @@ class StitchHandler: # pylint: disable=too-few-public-methods
 
     def generate_s3_key(self, data):
         return  "{:07d}/{}-{}-{}".format(
-            self.client_id,
+            int(self.client_id),
             uuid.uuid4(),
-            hashlib.sha1(data),
-            datetime.utcnow.strftime("%Y%m%d-%H%M%S%f")
+            hashlib.sha1(data).hexdigest(),
+            singer.utils.strftime(singer.utils.now(), "%Y%m%d-%H%M%S%f")
         )
-
-    def ensure_multipleof_is_decimal(self, schema):
-        '''Ensure multipleOf (if exists) points to a Decimal.
-
-        Recursively walks the given schema (which must be dict), converting
-        every instance of the multipleOf keyword to a Decimal.
-
-        This modifies the input schema and also returns it.
-
-        '''
-        if 'multipleOf' in schema:
-            schema['multipleOf'] = Decimal(str(schema['multipleOf']))
-
-        if 'properties' in schema:
-            for k, v in schema['properties'].items():
-                self.ensure_multipleof_is_decimal(v)
-
-        if 'items' in schema:
-            self.ensure_multipleof_is_decimal(schema['items'])
-
-        return schema
 
     def headers(self):
         '''Return the headers based on the token'''
@@ -264,7 +280,7 @@ class StitchHandler: # pylint: disable=too-few-public-methods
     def post_to_spool(self, body):
         '''Send the given data to the spool, retrying on exceptions'''
         ssl_verify = os.environ.get("TARGET_STITCH_SSL_VERIFY") != 'false'
-        response = self.session.post(STITCH_SPOOL_URL.format(self.client_id),
+        response = self.session.post(STITCH_SPOOL_URL.format(self.spool_host, self.client_id),
                                      headers=self.headers(),
                                      json=body,
                                      verify=ssl_verify)
@@ -272,23 +288,26 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         return response
 
     def handle_batch(self, messages, buffer_size_bytes, schema, key_names, bookmark_names=None):
-        LOGGER.info('handle batch')
         table_name = messages[0].stream
-        if table_name not in self.send_methods:
-            if (buffer_size_bytes >= (4 * 1024 * 1024)) or len(messages) > self.max_batch_records:
-                self.send_methods[table_name] = 's3'
-            else:
-                self.send_methods[table_name] = 'gate'
+        self.handle_s3(messages, schema, key_names, bookmark_names=None)
 
-        if (self.send_methods.get(table_name) == 's3'):
-            self.handle_s3(messages, schema, key_names, bookmark_names=None)
-        else:
-            self.handle_gate(messages, schema, key_names, bookmark_names=None)
+        # if table_name not in self.send_methods:
+        #     if (buffer_size_bytes >= (4 * 1024 * 1024)) or len(messages) > self.max_batch_records:
+        #         self.send_methods[table_name] = 's3'
+        #     else:
+        #         self.send_methods[table_name] = 'gate'
+
+        # if (self.send_methods.get(table_name) == 's3'):
+        #     self.handle_s3(messages, schema, key_names, bookmark_names=None)
+        # else:
+        #     self.handle_gate(messages, schema, key_names, bookmark_names=None)
 
         TIMINGS.log_timings()
 
     def handle_s3_upserts(self, messages, schema, key_names, bookmark_names=None):
+        LOGGER.info("handling batch of %s upserts for table %s to s3", len(messages), messages[0].stream)
         table_name = messages[0].stream
+
         table_version = determine_table_version(messages[0])
         num_records = len(messages)
 
@@ -298,10 +317,10 @@ class StitchHandler: # pylint: disable=too-few-public-methods
 
         #NB> Decimal marshalling must occur BEFORE schema validation
         with TIMINGS.mode('marshall_decimals'):
-            messages_with_decimals = [marshall_decimals(schema, m.record) for m in messages]
+            records_with_decimals = [marshall_decimals(schema, m.record) for m in messages]
 
         with TIMINGS.mode('validate_records'):
-            for msg in messages_with_decimals:
+            for msg in records_with_decimals:
                 try:
                     validator.validate(msg)
                 except ValidationError as exc:
@@ -314,19 +333,22 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         if bookmark_names:
             # We only support one bookmark key
             bookmark_key = bookmark_names[0]
-            bookmarks = [r[bookmark_key] for r in messages_with_decimals]
+            bookmarks = [r[bookmark_key] for r in records_with_decimals]
             bookmark_min = min(bookmarks)
             bookmark_max = max(bookmarks)
+            bookmark_metadata = [{
+                "key": bookmark_key,
+                "min_value": bookmark_min,
+                "max_value": bookmark_max,
+            }]
         else:
-            bookmark_key = None
-            bookmark_min = None
-            bookmark_max = None
+            bookmark_metadata = None
 
         # TODO: add _sdc fields to records?
-        pipeline_messages = self.serialize_s3_upsert_messages(messages_with_decimals, table_name, key_names)
+        pipeline_messages = self.serialize_s3_upsert_messages(records_with_decimals, schema, table_name, key_names)
 
         data = transit_encode(pipeline_messages)
-        key_name, persist_time = post_to_s3(data, num_records, table_name)
+        key_name, persist_time = self.post_to_s3(data, num_records, table_name)
 
         with TIMINGS.mode('post_to_spool'):
             body = {
@@ -334,14 +356,10 @@ class StitchHandler: # pylint: disable=too-few-public-methods
                 "table_name"   : table_name,
                 "table_version": table_version,
                 "action": "upsert",
-                "max_time_extracted": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
-                "bookmark_metadata": {
-                    "key": bookmark_key,
-                    "min_value": bookmark_min,
-                    "max_value": bookmark_max,
-                },
+                "max_time_extracted": now(),
+                "bookmark_metadata": bookmark_metadata,
                 "s3_key": key_name,
-                "s3_bucket": self.bucket,
+                "s3_bucket": self.bucket_name,
                 "num_records": num_records,
                 "num_bytes": len(data),
                 "format": "transit+msgpack",
@@ -352,12 +370,13 @@ class StitchHandler: # pylint: disable=too-few-public-methods
 
 
     def handle_s3_activate_version(self, messages, schema, key_names, bookmark_names=None):
+        LOGGER.info("handling activate_version for table %s to s3", messages[0].stream)
         table_name = messages[0].stream
         table_version = determine_table_version(messages[0])
         pipeline_message = {
             "message_version" : MESSAGE_VERSION,
             "pipeline_version" :  PIPELINE_VERSION,
-            "timestamps" : {"_rjm_received_at" : singer.now()},
+            "timestamps" : {"_rjm_received_at" : int(time.time() * 1000)},
             "body" : {"client_id" : self.client_id,
                       "namespace" : "perftest",
                       "table_name" : table_name,
@@ -366,7 +385,7 @@ class StitchHandler: # pylint: disable=too-few-public-methods
             }
         data = transit_encode([pipeline_message])
 
-        key_name, persist_time = post_to_s3(data, num_records, table_name)
+        key_name, persist_time = self.post_to_s3(data, num_records, table_name)
 
         with TIMINGS.mode('post_to_spool'):
             body = {
@@ -374,10 +393,10 @@ class StitchHandler: # pylint: disable=too-few-public-methods
                 "table_name"   : table_name,
                 "table_version": table_version,
                 "action": "switch_view",
-                "max_time_extracted": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+                "max_time_extracted": now(),
                 "bookmark_metadata": None,
                 "s3_key": key_name,
-                "s3_bucket": self.bucket,
+                "s3_bucket": self.bucket_name,
                 "num_records": 1,
                 "num_bytes": len(data),
                 "format": "transit+msgpack",
@@ -388,21 +407,21 @@ class StitchHandler: # pylint: disable=too-few-public-methods
 
 
     def handle_s3(self, messages, schema, key_names, bookmark_names=None):
-        LOGGER.info("Sending batch with %d messages for table %s to s3",
-                    len(messages), messages[0].stream)
         activate_versions = []
         upserts = []
 
         for msg in messages:
             if isinstance(msg, singer.ActivateVersionMessage):
                 activate_versions.append(msg)
-            elif isinstance(msg, singer.Record):
+            elif isinstance(msg, singer.RecordMessage):
                 upserts.append(msg)
             else:
                 raise Exception('unrecognized message type')
 
-        self.handle_s3_upserts(upserts, schema, key_names, bookmark_names)
-        self.handle_s3_activate_version(upserts, schema, key_names, bookmark_names)
+        if upserts:
+            self.handle_s3_upserts(upserts, schema, key_names, bookmark_names)
+        if activate_versions:
+            self.handle_s3_activate_version(activate_versions, schema, key_names, bookmark_names)
 
 
     def handle_gate(self, messages, schema, key_names, bookmark_names=None):

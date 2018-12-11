@@ -1,5 +1,8 @@
 from contextlib import contextmanager
 import time
+import singer
+
+LOGGER = singer.get_logger().getChild('target_stitch')
 
 class Timings:
     '''Gathers timing information for the three main steps of the Tap.'''

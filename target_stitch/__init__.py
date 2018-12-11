@@ -7,9 +7,6 @@ Target for Stitch API.
 
 import argparse
 import backoff
-import boto
-import dateutil.tz
-import hashlib
 import io
 import json
 import pkg_resources
@@ -18,16 +15,9 @@ import requests
 import singer
 import sys
 import time
-import uuid
-
-from boto.s3.key import Key
 
 from collections import namedtuple
-from datetime import datetime, timezone
-from decimal import Decimal
-from jsonschema import SchemaError, ValidationError, Draft4Validator, FormatChecker
 from threading import Thread
-from transit.writer import Writer
 from target_stitch.handlers import StitchHandler, LoggingHandler, ValidatingHandler
 from target_stitch.exceptions import TargetStitchException
 
@@ -37,23 +27,11 @@ LOGGER = singer.get_logger().getChild('target_stitch')
 StreamMeta = namedtuple('StreamMeta', ['schema', 'key_properties', 'bookmark_properties'])
 
 DEFAULT_STITCH_URL = 'https://api.stitchdata.com/v2/import/batch'
-STITCH_SPOOL_URL = "https://api.stitchdata.com/spool/private/v1/clients/{}/batches"
+
 DEFAULT_MAX_BATCH_BYTES = 100000000
 DEFAULT_MAX_BATCH_RECORDS = 20000
 SEQUENCE_MULTIPLIER = 1000
 
-
-def strptime(d):
-    """
-    The target should only encounter date-times consisting of the formats below.
-    They are compatible with singer-python's strftime function.
-    """
-    try:
-        rtn = datetime.strptime(d, "%Y-%m-%dT%H:%M:%SZ")
-    except:
-        rtn = datetime.strptime(d, "%Y-%m-%dT%H:%M:%S.%fZ")
-
-    return rtn.replace(tzinfo=dateutil.tz('utc'))
 
 
 def collect():
@@ -168,7 +146,6 @@ class TargetStitch:
         # If we got a Schema, set the schema and key properties for this
         # stream. Flush the batch, if there is one, in case the schema is
         # different.
-        LOGGER.info("handle line: %s", message)
         if isinstance(message, singer.SchemaMessage):
             self.flush()
 
@@ -260,6 +237,8 @@ def main_impl():
         client_id = config.get('client_id')
         connection_ns = config.get('connection_ns')
         stitch_url = use_batch_url(config.get('stitch_url', DEFAULT_STITCH_URL))
+        spool_host = config.get('stitch_spool_service_host')
+        spool_s3_bucket = config.get('stitch_spool_s3_bucket')
 
         if not token:
             raise Exception('Configuration is missing required "token" field')
@@ -273,6 +252,8 @@ def main_impl():
                                       client_id,
                                       connection_ns,
                                       stitch_url,
+                                      spool_host,
+                                      spool_s3_bucket,
                                       args.max_batch_bytes,
                                       DEFAULT_MAX_BATCH_RECORDS))
 
