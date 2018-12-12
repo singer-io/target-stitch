@@ -1,3 +1,9 @@
+from target_stitch.handlers.common import ensure_multipleof_is_decimal, marshall_decimals
+from jsonschema import Draft4Validator, FormatChecker
+import singer
+
+LOGGER = singer.get_logger().getChild('target_stitch')
+
 class ValidatingHandler: # pylint: disable=too-few-public-methods
     '''Validates input messages against their schema.'''
 
