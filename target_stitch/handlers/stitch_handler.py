@@ -25,6 +25,15 @@ MESSAGE_VERSION=2
 PIPELINE_VERSION='2'
 STITCH_SPOOL_URL = "{}/spool/private/v1/clients/{}/batches"
 
+#experiments have shown that payloads over 1MB are more efficiently transfered via S3
+S3_THRESHOLD_BYTES=(1 * 1024 * 1024)
+#above 6, sequence ids will eclipse the maximum value of a LONG
+MAX_SEQUENCE_SUFFIX_LENGTH=6
+#the gate will NOT accept POST which contain more than 20k records
+MAX_NUM_GATE_RECORDS=20000
+#the gate will NOT accept POST which contain more than 4MB
+MAX_NUM_GATE_BYTES=(4 * 1024 * 1024)
+
 TIMINGS = Timings()
 
 def now():
@@ -43,6 +52,7 @@ def determine_table_version(first_message):
     return None
 
 def transit_encode(pipeline_messages):
+    LOGGER.info("transit encoding records")
     with TIMINGS.mode('transit_encode'):
         with io.BytesIO() as buf:
             writer = Writer(buf, "msgpack")
@@ -55,15 +65,13 @@ def transit_encode(pipeline_messages):
 class StitchHandler: # pylint: disable=too-few-public-methods
     '''Sends messages to Stitch.'''
 
-    def __init__(self, token, client_id, connection_ns, stitch_url, spool_host, spool_s3_bucket, max_batch_bytes, max_batch_records):
+    def __init__(self, token, client_id, connection_ns, stitch_url, spool_host, spool_s3_bucket):
         self.token = token
         self.client_id = client_id
         self.connection_ns = connection_ns
         self.stitch_url = stitch_url
         self.spool_host = spool_host
         self.session = requests.Session()
-        self.max_batch_bytes = max_batch_bytes
-        self.max_batch_records = max_batch_records
         self.s3_conn = boto.connect_s3()
         self.bucket_name = spool_s3_bucket
         self.bucket = self.s3_conn.get_bucket(self.bucket_name)
@@ -87,11 +95,7 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         '''Generates a unique sequence number based on the current time millis
         with a zero-padded message number based on the magnitude of max_records.'''
         sequence_base = str(int(time.time() * 1000))
-
-        # add an extra order of magnitude to account for the fact that we can
-        # actually accept more than the max record count
-        fill = len(str(10 * self.max_batch_records))
-        sequence_suffix = str(message_num).zfill(fill)
+        sequence_suffix = str(message_num).zfill(MAX_SEQUENCE_SUFFIX_LENGTH)
 
         return int(sequence_base + sequence_suffix)
 
@@ -114,7 +118,7 @@ class StitchHandler: # pylint: disable=too-few-public-methods
                                           }})
         return pipeline_messages
 
-    def serialize_gate_messages(self, messages, schema, key_names, bookmark_names, max_bytes, max_records):
+    def serialize_gate_messages(self, messages, schema, key_names, bookmark_names):
         '''Produces request bodies for Stitch.
 
         Builds a request body consisting of all the messages. Serializes it as
@@ -162,17 +166,17 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         serialized = json.dumps(body)
         LOGGER.debug('Serialized %d messages into %d bytes', len(messages), len(serialized))
 
-        if len(serialized) < max_bytes:
+        if len(serialized) < MAX_NUM_GATE_BYTES:
             return [serialized]
 
         if len(messages) <= 1:
             raise BatchTooLargeException(
                 "A single record is larger than the Stitch API limit of {} Mb".format(
-                    max_bytes // 1000000))
+                    MAX_NUM_GATE_BYTES // (1024 * 1024)))
 
         pivot = len(messages) // 2
-        l_half = serialize(messages[:pivot], schema, key_names, bookmark_names, max_bytes, max_records)
-        r_half = serialize(messages[pivot:], schema, key_names, bookmark_names, max_bytes, max_records)
+        l_half = self.serialize_gate_messages(messages[:pivot], schema, key_names, bookmark_names)
+        r_half = self.serialize_gate_messages(messages[pivot:], schema, key_names, bookmark_names)
         return l_half + r_half
 
     def generate_s3_key(self, data):
@@ -222,18 +226,19 @@ class StitchHandler: # pylint: disable=too-few-public-methods
 
     def handle_batch(self, messages, buffer_size_bytes, schema, key_names, bookmark_names=None):
         table_name = messages[0].stream
-        self.handle_s3(messages, schema, key_names, bookmark_names=None)
+        # self.handle_s3(messages, schema, key_names, bookmark_names=None)
+        # self.handle_gate(messages, schema, key_names, bookmark_names=None)
 
-        # if table_name not in self.send_methods:
-        #     if (buffer_size_bytes >= (4 * 1024 * 1024)) or len(messages) > self.max_batch_records:
-        #         self.send_methods[table_name] = 's3'
-        #     else:
-        #         self.send_methods[table_name] = 'gate'
+        if table_name not in self.send_methods:
+            if ((buffer_size_bytes >= S3_THRESHOLD_BYTES) or (len(messages) > MAX_NUM_GATE_RECORDS)):
+                self.send_methods[table_name] = 's3'
+            else:
+                self.send_methods[table_name] = 'gate'
 
-        # if (self.send_methods.get(table_name) == 's3'):
-        #     self.handle_s3(messages, schema, key_names, bookmark_names=None)
-        # else:
-        #     self.handle_gate(messages, schema, key_names, bookmark_names=None)
+        if (self.send_methods.get(table_name) == 's3'):
+            self.handle_s3(messages, schema, key_names, bookmark_names=None)
+        else:
+            self.handle_gate(messages, schema, key_names, bookmark_names=None)
 
         TIMINGS.log_timings()
 
@@ -252,6 +257,7 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         with TIMINGS.mode('marshall_decimals'):
             records_with_decimals = [marshall_decimals(schema, m.record) for m in messages]
 
+        LOGGER.info("validating records")
         with TIMINGS.mode('validate_records'):
             for msg in records_with_decimals:
                 try:
@@ -371,9 +377,7 @@ class StitchHandler: # pylint: disable=too-few-public-methods
             bodies = self.serialize_gate_messages(messages,
                                              schema,
                                              key_names,
-                                             bookmark_names,
-                                             self.max_batch_bytes,
-                                             self.max_batch_records)
+                                             bookmark_names)
 
         LOGGER.debug('Split batch into %d requests', len(bodies))
         for i, body in enumerate(bodies):

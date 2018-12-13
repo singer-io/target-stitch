@@ -21,18 +21,17 @@ from threading import Thread
 from target_stitch.handlers import StitchHandler, LoggingHandler, ValidatingHandler
 from target_stitch.exceptions import TargetStitchException
 
+DEFAULT_STITCH_URL = 'https://api.stitchdata.com/v2/import/batch'
+
+MAX_BYTES_PER_FLUSH = 20 * 1000 * 1000
+
+# Cannot be higher than 99999 due to sequence numbers exceeding max long value
+MAX_RECORDS_PER_FLUSH = 20000
+
 LOGGER = singer.get_logger().getChild('target_stitch')
 
 # We use this to store schema and key properties from SCHEMA messages
 StreamMeta = namedtuple('StreamMeta', ['schema', 'key_properties', 'bookmark_properties'])
-
-DEFAULT_STITCH_URL = 'https://api.stitchdata.com/v2/import/batch'
-
-DEFAULT_MAX_BATCH_BYTES = 100000000
-DEFAULT_MAX_BATCH_RECORDS = 20000
-SEQUENCE_MULTIPLIER = 1000
-
-
 
 def collect():
     '''Send usage info to Stitch.'''
@@ -89,7 +88,6 @@ class TargetStitch:
     def __init__(self, # pylint: disable=too-many-arguments
                  handlers,
                  state_writer,
-                 max_batch_bytes,
                  batch_delay_seconds):
         self.messages = []
         self.buffer_size_bytes = 0
@@ -103,10 +101,6 @@ class TargetStitch:
 
         # Writer that we write state records to
         self.state_writer = state_writer
-
-        # Batch size limits. Stored as properties here so we can easily
-        # change for testing.
-        self.max_batch_bytes = max_batch_bytes
 
         # Minimum frequency to send a batch, used with self.time_last_batch_sent
         self.batch_delay_seconds = batch_delay_seconds
@@ -167,7 +161,7 @@ class TargetStitch:
             num_seconds = time.time() - self.time_last_batch_sent
 
             #don't run out of memory
-            if num_bytes >= self.max_batch_bytes or num_messages > DEFAULT_MAX_BATCH_RECORDS:
+            if num_bytes >= MAX_BYTES_PER_FLUSH or num_messages >= MAX_RECORDS_PER_FLUSH:
                 LOGGER.debug('Flushing %d bytes, %d messages, after %.2f seconds',
                              num_bytes, num_messages, num_seconds)
                 self.flush()
@@ -213,7 +207,6 @@ def main_impl():
         '-q', '--quiet',
         help='Suppress info-level logging',
         action='store_true')
-    parser.add_argument('--max-batch-bytes', type=int, default=DEFAULT_MAX_BATCH_BYTES)
     parser.add_argument('--batch-delay-seconds', type=float, default=300.0)
     args = parser.parse_args()
 
@@ -224,9 +217,7 @@ def main_impl():
 
     handlers = []
     if args.output_file:
-        handlers.append(LoggingHandler(args.output_file,
-                                       args.max_batch_bytes,
-                                       DEFAULT_MAX_BATCH_RECORDS))
+        handlers.append(LoggingHandler(args.output_file))
     if args.dry_run:
         handlers.append(ValidatingHandler())
     elif not args.config:
@@ -253,15 +244,11 @@ def main_impl():
                                       connection_ns,
                                       stitch_url,
                                       spool_host,
-                                      spool_s3_bucket,
-                                      args.max_batch_bytes,
-                                      DEFAULT_MAX_BATCH_RECORDS))
+                                      spool_s3_bucket))
 
-    # queue = Queue(DEFAULT_MAX_BATCH_RECORDS)
     reader = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
     TargetStitch(handlers,
                  sys.stdout,
-                 args.max_batch_bytes,
                  args.batch_delay_seconds).consume(reader)
     LOGGER.info("Exiting normally")
 
