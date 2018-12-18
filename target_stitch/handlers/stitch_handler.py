@@ -18,6 +18,7 @@ from requests.exceptions import RequestException, HTTPError
 from target_stitch.timings import Timings
 from target_stitch.exceptions import TargetStitchException
 from jsonschema import SchemaError, ValidationError, Draft4Validator, FormatChecker
+from jsonschema.exceptions import UnknownType
 from target_stitch.handlers.common import ensure_multipleof_is_decimal, marshall_decimals, marshall_date_times
 
 LOGGER = singer.get_logger().getChild('target_stitch')
@@ -264,9 +265,9 @@ class StitchHandler: # pylint: disable=too-few-public-methods
                     validator.validate(msg)
                 except ValidationError as exc:
                     raise ValueError('Record({}) does not conform to schema. Please see logs for details.'
-                                     .format(rec)) from exc
-                except SchemaError as exc:
-                    raise ValueError('Schema({}) is invalid. Please see logs for details. {}'
+                                     .format(msg)) from exc
+                except (SchemaError, UnknownType) as exc:
+                    raise ValueError('Schema({}) is invalid. Please see logs for details.'
                                      .format(schema)) from exc
 
         if bookmark_names:
