@@ -35,6 +35,15 @@ def mk_version(stream, version):
         "version": version,
     })
 
+
+def _mk_record(stream, record):
+    return json.dumps({
+        "type": "RECORD",
+        "stream": stream,
+        "record": record,
+    })
+
+
 def mk_record(stream, num, version=None):
     msg = {
         "type": "RECORD",
@@ -156,3 +165,8 @@ class TestTarget(unittest.TestCase):
 
         self.assertEqual("3\n7\n", self.state_writer.getvalue())
         target_stitch.MAX_RECORDS_PER_FLUSH = records_per_flush
+
+    def test_record_too_large(self):
+        lines = [_mk_record("test1", {"name": "a" * target_stitch.MAX_BYTES_PER_RECORD})]
+        with self.assertRaises(ValueError):
+            self.target_stitch.consume(lines)
