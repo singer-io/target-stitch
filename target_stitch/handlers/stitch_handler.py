@@ -263,6 +263,10 @@ class StitchHandler: # pylint: disable=too-few-public-methods
             for msg in records_with_decimals:
                 try:
                     validator.validate(msg)
+                    if key_names:
+                        for key in key_names:
+                            if key not in msg:
+                                raise ValueError("Record({}) is missing key property {}.".format(msg, key))
                 except ValidationError as exc:
                     raise ValueError('Record({}) does not conform to schema. Please see logs for details.'
                                      .format(msg)) from exc
@@ -308,7 +312,6 @@ class StitchHandler: # pylint: disable=too-few-public-methods
             }
             self.post_to_spool(body)
 
-
     def handle_s3_activate_version(self, messages, schema, key_names, bookmark_names=None):
         LOGGER.info("handling activate_version for table %s to s3", messages[0].stream)
         table_name = messages[0].stream
@@ -345,7 +348,6 @@ class StitchHandler: # pylint: disable=too-few-public-methods
             }
             self.post_to_spool(body)
 
-
     def handle_s3(self, messages, schema, key_names, bookmark_names=None):
         activate_versions = []
         upserts = []
@@ -362,7 +364,6 @@ class StitchHandler: # pylint: disable=too-few-public-methods
             self.handle_s3_upserts(upserts, schema, key_names, bookmark_names)
         if activate_versions:
             self.handle_s3_activate_version(activate_versions, schema, key_names, bookmark_names)
-
 
     def handle_gate(self, messages, schema, key_names, bookmark_names=None):
         '''Handle messages by sending them to Stitch.

@@ -204,6 +204,7 @@ class TestStitchHandler(unittest.TestCase):
         version = mk_version("test1", 1)
         messages = [singer.parse_message(record), singer.parse_message(version)]
         key_name = "test-key"
+
         with mock.patch.object(self.handler, 'post_to_spool') as mock_post:
             with mock.patch.object(self.handler, 'post_to_s3', return_value=[key_name, 1]) as mock_post_s3:
                 with self.assertRaises(ValueError):
@@ -214,10 +215,33 @@ class TestStitchHandler(unittest.TestCase):
                         schema.key_properties,
                         schema.bookmark_properties)
 
-    def test_datetimes(self):
-        schema_data = {"date": {"type": "string", "format": "date-time"}}
+    def test_missing_key_property(self):
+        schema_data = {"name": {"type": ["null", "string"]}}
         schema = singer.parse_message(mk_schema("test1", schema_data))
-        record_data = {"date": "2018-01-01T00:00:00Z"}
+        record_data = {}
+        record = mk_record("test1", record_data)
+        messages = [singer.parse_message(record)]
+        key_name = "test-key"
+
+        with mock.patch.object(self.handler, 'post_to_spool') as mock_post:
+            with mock.patch.object(self.handler, 'post_to_s3', return_value=[key_name, 1]) as mock_post_s3:
+                with self.assertRaises(ValueError):
+                    self.handler.handle_batch(messages,
+                                              stitch_handler.S3_THRESHOLD_BYTES + 1,
+                                              schema.schema,
+                                              schema.key_properties,
+                                              schema.bookmark_properties)
+
+    def test_datetimes(self):
+        schema_data = {
+            "name": {"type": "string"},
+            "date": {"type": "string", "format": "date-time"},
+        }
+        schema = singer.parse_message(mk_schema("test1", schema_data))
+        record_data = {
+            "name": "test1-0",
+            "date": "2018-01-01T00:00:00Z",
+        }
         record = mk_record("test1", record_data, 1)
         version = mk_version("test1", 1)
         messages = [singer.parse_message(record), singer.parse_message(version)]
@@ -233,14 +257,21 @@ class TestStitchHandler(unittest.TestCase):
 
         actual = decode_transit(mock_post_s3.call_args_list[0][0][0])
         expected = {
+            "name": "test1-0",
             "date": datetime.datetime(2018, 1, 1, tzinfo=pytz.UTC),
         }
         self.assertDictEqual(expected, dict(actual["body"]["data"]))
 
     def test_decimals(self):
-        schema_data = {"money": {"type": "number", "multipleOf": 0.01}}
+        schema_data = {
+            "name": {"type": "string"},
+            "money": {"type": "number", "multipleOf": 0.01},
+        }
         schema = singer.parse_message(mk_schema("test1", schema_data))
-        record_data = {"money": 10.42}
+        record_data = {
+            "name": "test1-0",
+            "money": 10.42,
+        }
         record = mk_record("test1", record_data, 1)
         version = mk_version("test1", 1)
         messages = [singer.parse_message(record), singer.parse_message(version)]
@@ -257,6 +288,7 @@ class TestStitchHandler(unittest.TestCase):
 
         actual = decode_transit(mock_post_s3.call_args_list[0][0][0])
         expected = {
+            "name": "test1-0",
             "money": Decimal("10.42"),
         }
         self.assertDictEqual(expected, dict(actual["body"]["data"]))

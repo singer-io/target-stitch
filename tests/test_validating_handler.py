@@ -54,10 +54,10 @@ class TestValidatingHandler(unittest.TestCase):
         messages = [singer.parse_message(record)]
         with self.assertRaises(TargetStitchException):
             self.handler.handle_batch(messages,
-                                    1,
-                                    schema.schema,
-                                    schema.key_properties,
-                                    schema.bookmark_properties)
+                                      1,
+                                      schema.schema,
+                                      schema.key_properties,
+                                      schema.bookmark_properties)
 
     def test_invalid_record(self):
         schema_data = {"name": {"type": "string"}}
@@ -67,20 +67,20 @@ class TestValidatingHandler(unittest.TestCase):
         messages = [singer.parse_message(record)]
         with self.assertRaises(TargetStitchException):
             self.handler.handle_batch(messages,
-                                    1,
-                                    schema.schema,
-                                    schema.key_properties,
-                                    schema.bookmark_properties)
+                                      1,
+                                      schema.schema,
+                                      schema.key_properties,
+                                      schema.bookmark_properties)
 
     def test_missing_key_property(self):
-        schema_data = {"name": {"type": "string"}}
+        schema_data = {"name": {"type": ["null", "string"]}}
         schema = singer.parse_message(mk_schema("test1", schema_data))
         record_data = {}
         record = mk_record("test1", record_data)
         messages = [singer.parse_message(record)]
         with self.assertRaises(TargetStitchException):
             self.handler.handle_batch(messages,
-                                    1,
-                                    schema.schema,
-                                    schema.key_properties,
-                                    schema.bookmark_properties)
+                                      1,
+                                      schema.schema,
+                                      schema.key_properties,
+                                      schema.bookmark_properties)
