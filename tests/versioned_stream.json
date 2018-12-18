@@ -1,8 +1,0 @@
-{"type": "SCHEMA", "stream": "users", "key_properties": ["id"], "schema": {"type": "object", "properties": {"id": {"type": "integer"}, "name": {"type": "string"}}}}
-{"type": "RECORD", "stream": "users", "version": 1, "record": {"id": 1, "name": "Sam"}}
-{"type": "RECORD", "stream": "users", "version": 1, "record": {"id": 2, "name": "Pat"}}
-{"type": "RECORD", "stream": "users", "version": 1, "record": {"id": 3, "name": "Alex"}}
-{"type": "ACTIVATE_VERSION", "stream": "users", "version": 1}
-{"type": "RECORD", "stream": "users", "version": 2, "record": {"id": 1, "name": "Samantha"}}
-{"type": "RECORD", "stream": "users", "version": 2, "record": {"id": 2, "name": "Patrick"}}
-{"type": "ACTIVATE_VERSION", "stream": "users", "version": 2}

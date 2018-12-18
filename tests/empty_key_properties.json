@@ -1,2 +1,0 @@
-{"type": "SCHEMA", "stream": "test_empty_key_properties", "key_properties": [], "schema": {"type": "object", "properties": {"name": {"type": "string"}}}}
-{"type": "RECORD", "stream": "test_empty_key_properties", "record": {"name": "Mike"}}
