@@ -1,3 +1,4 @@
+from target_stitch.exceptions import TargetStitchException
 from target_stitch.handlers.common import ensure_multipleof_is_decimal, marshall_decimals
 from jsonschema import Draft4Validator, FormatChecker
 import singer
