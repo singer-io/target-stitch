@@ -23,7 +23,8 @@ from target_stitch.exceptions import TargetStitchException
 
 DEFAULT_STITCH_URL = 'https://api.stitchdata.com/v2/import/batch'
 
-MAX_BYTES_PER_FLUSH = 20 * 1000 * 1000
+MAX_BYTES_PER_FLUSH = 20 * 1024 * 1024
+MAX_BYTES_PER_RECORD = MAX_BYTES_PER_FLUSH
 
 # Cannot be higher than 99999 due to sequence numbers exceeding max long value
 MAX_RECORDS_PER_FLUSH = 20000
@@ -124,7 +125,6 @@ class TargetStitch:
             self.state_writer.flush()
             self.state = None
 
-
     def handle_line(self, line):
         '''Takes a raw line from stdin and handles it, updating state and possibly
         flushing the batch to the Gate and the state to the output
@@ -144,6 +144,9 @@ class TargetStitch:
                 message.bookmark_properties)
 
         elif isinstance(message, (singer.RecordMessage, singer.ActivateVersionMessage)):
+            if len(line) > MAX_BYTES_PER_RECORD:
+                raise ValueError("Records is too large {} > {}".format(len(line), MAX_BYTES_PER_RECORD))
+
             if self.messages and (
                     message.stream != self.messages[0].stream or
                     message.version != self.messages[0].version):

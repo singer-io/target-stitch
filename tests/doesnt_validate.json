@@ -1,2 +1,0 @@
-{"type": "SCHEMA", "stream": "users", "schema": { "type": "object", "properties": { "name": { "type": "string" } }}, "key_properties": ["name"] }
-{"type": "RECORD", "stream": "users", "record": {"name": 1}}

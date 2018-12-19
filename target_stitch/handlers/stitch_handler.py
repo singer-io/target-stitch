@@ -19,6 +19,7 @@ from target_stitch.timings import Timings
 from target_stitch.exceptions import TargetStitchException
 from jsonschema import SchemaError, ValidationError, Draft4Validator, FormatChecker
 from target_stitch.handlers.common import ensure_multipleof_is_decimal, marshall_decimals, marshall_date_times, MAX_NUM_GATE_RECORDS, serialize_gate_messages, determine_table_version
+from jsonschema.exceptions import UnknownType
 
 LOGGER = singer.get_logger().getChild('target_stitch')
 MESSAGE_VERSION=2
@@ -182,11 +183,15 @@ class StitchHandler: # pylint: disable=too-few-public-methods
             for msg in records_with_decimals:
                 try:
                     validator.validate(msg)
+                    if key_names:
+                        for key in key_names:
+                            if key not in msg:
+                                raise ValueError("Record({}) is missing key property {}.".format(msg, key))
                 except ValidationError as exc:
                     raise ValueError('Record({}) does not conform to schema. Please see logs for details.'
-                                     .format(rec)) from exc
-                except SchemaError as exc:
-                    raise ValueError('Schema({}) is invalid. Please see logs for details. {}'
+                                     .format(msg)) from exc
+                except (SchemaError, UnknownType) as exc:
+                    raise ValueError('Schema({}) is invalid. Please see logs for details.'
                                      .format(schema)) from exc
 
         if bookmark_names:
@@ -227,7 +232,6 @@ class StitchHandler: # pylint: disable=too-few-public-methods
             }
             self.post_to_spool(body)
 
-
     def handle_s3_activate_version(self, messages, schema, key_names, bookmark_names=None):
         LOGGER.info("handling activate_version for table %s to s3", messages[0].stream)
         table_name = messages[0].stream
@@ -264,7 +268,6 @@ class StitchHandler: # pylint: disable=too-few-public-methods
             }
             self.post_to_spool(body)
 
-
     def handle_s3(self, messages, schema, key_names, bookmark_names=None):
         activate_versions = []
         upserts = []
@@ -281,7 +284,6 @@ class StitchHandler: # pylint: disable=too-few-public-methods
             self.handle_s3_upserts(upserts, schema, key_names, bookmark_names)
         if activate_versions:
             self.handle_s3_activate_version(activate_versions, schema, key_names, bookmark_names)
-
 
     def handle_gate(self, messages, schema, key_names, bookmark_names=None):
         '''Handle messages by sending them to Stitch.

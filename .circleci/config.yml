@@ -24,4 +24,3 @@ jobs:
             # Need to re-activate the virtualenv
             source ~/.virtualenvs/target-stitch/bin/activate
             nosetests --ignore-files=integration_tests.py
-            pylint target_stitch
