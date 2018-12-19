@@ -1,3 +1,8 @@
+import singer
+from target_stitch.handlers.common import serialize_gate_messages
+
+LOGGER = singer.get_logger().getChild('target_stitch')
+
 class LoggingHandler:  # pylint: disable=too-few-public-methods
     '''Logs records to a local output file.'''
     def __init__(self, output_file):
@@ -12,10 +17,9 @@ class LoggingHandler:  # pylint: disable=too-few-public-methods
         '''
         LOGGER.info("Saving batch with %d messages for table %s to %s",
                     len(messages), messages[0].stream, self.output_file.name)
-        for i, body in enumerate(serialize(messages,
-                                           schema,
-                                           key_names,
-                                           bookmark_names)):
+        for i, body in enumerate(serialize_gate_messages(messages,
+                                                         schema, key_names,
+                                                         bookmark_names)):
             LOGGER.debug("Request body %d is %d bytes", i, len(body))
             self.output_file.write(body)
             self.output_file.write('\n')

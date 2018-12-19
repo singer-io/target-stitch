@@ -18,7 +18,7 @@ from requests.exceptions import RequestException, HTTPError
 from target_stitch.timings import Timings
 from target_stitch.exceptions import TargetStitchException
 from jsonschema import SchemaError, ValidationError, Draft4Validator, FormatChecker
-from target_stitch.handlers.common import ensure_multipleof_is_decimal, marshall_decimals, marshall_date_times
+from target_stitch.handlers.common import ensure_multipleof_is_decimal, marshall_decimals, marshall_date_times, MAX_NUM_GATE_RECORDS, serialize_gate_messages, determine_table_version
 
 LOGGER = singer.get_logger().getChild('target_stitch')
 MESSAGE_VERSION=2
@@ -27,12 +27,6 @@ STITCH_SPOOL_URL = "{}/spool/private/v1/clients/{}/batches"
 
 #experiments have shown that payloads over 1MB are more efficiently transfered via S3
 S3_THRESHOLD_BYTES=(1 * 1024 * 1024)
-#above 6, sequence ids will eclipse the maximum value of a LONG
-MAX_SEQUENCE_SUFFIX_LENGTH=6
-#the gate will NOT accept POST which contain more than 20k records
-MAX_NUM_GATE_RECORDS=20000
-#the gate will NOT accept POST which contain more than 4MB
-MAX_NUM_GATE_BYTES=(4 * 1024 * 1024)
 
 TIMINGS = Timings()
 
@@ -44,12 +38,6 @@ def _log_backoff(details):
     LOGGER.info(
         'Error sending data to Stitch. Sleeping %d seconds before trying again: %s',
         details['wait'], exc)
-
-
-def determine_table_version(first_message):
-    if first_message and first_message.version is not None:
-        return first_message.version
-    return None
 
 def transit_encode(pipeline_messages):
     LOGGER.info("transit encoding records")
@@ -91,14 +79,6 @@ class StitchHandler: # pylint: disable=too-few-public-methods
 
         return (key_name, persist_time)
 
-    def generate_sequence(self, message_num):
-        '''Generates a unique sequence number based on the current time millis
-        with a zero-padded message number based on the magnitude of max_records.'''
-        sequence_base = str(int(time.time() * 1000))
-        sequence_suffix = str(message_num).zfill(MAX_SEQUENCE_SUFFIX_LENGTH)
-
-        return int(sequence_base + sequence_suffix)
-
     def serialize_s3_upsert_messages(self, records, schema, table_name, key_names ):
         pipeline_messages = []
         for idx, msg in enumerate(records):
@@ -118,66 +98,6 @@ class StitchHandler: # pylint: disable=too-few-public-methods
                                           }})
         return pipeline_messages
 
-    def serialize_gate_messages(self, messages, schema, key_names, bookmark_names):
-        '''Produces request bodies for Stitch.
-
-        Builds a request body consisting of all the messages. Serializes it as
-        JSON. If the result exceeds the request size limit, splits the batch
-        in half and recurs.
-        '''
-
-        serialized_messages = []
-        for idx, message in enumerate(messages):
-            if isinstance(message, singer.RecordMessage):
-                record_message = {
-                    'action': 'upsert',
-                    'data': message.record,
-                    'sequence': self.generate_sequence(idx)
-                }
-
-                if message.time_extracted:
-                    record_message['time_extracted'] = singer.utils.strftime(message.time_extracted)
-
-                serialized_messages.append(record_message)
-            elif isinstance(message, singer.ActivateVersionMessage):
-                serialized_messages.append({
-                    'action': 'activate_version',
-                    'sequence': self.generate_sequence(idx)
-                })
-
-        body = {
-            'table_name': messages[0].stream,
-            'schema': schema,
-            'key_names': key_names,
-            'messages': serialized_messages
-        }
-        if determine_table_version(messages[0]):
-            body['table_version'] = determine_table_version(messages[0])
-
-        if bookmark_names:
-            body['bookmark_names'] = bookmark_names
-
-        # We are not using Decimals for parsing here. We recognize that
-        # exposes data to potential rounding errors. However, the Stitch API
-        # as it is implemented currently is also subject to rounding errors.
-        # This will affect very few data points and we have chosen to leave
-        # conversion as is for now.
-
-        serialized = json.dumps(body)
-        LOGGER.debug('Serialized %d messages into %d bytes', len(messages), len(serialized))
-
-        if len(serialized) < MAX_NUM_GATE_BYTES:
-            return [serialized]
-
-        if len(messages) <= 1:
-            raise BatchTooLargeException(
-                "A single record is larger than the Stitch API limit of {} Mb".format(
-                    MAX_NUM_GATE_BYTES // (1024 * 1024)))
-
-        pivot = len(messages) // 2
-        l_half = self.serialize_gate_messages(messages[:pivot], schema, key_names, bookmark_names)
-        r_half = self.serialize_gate_messages(messages[pivot:], schema, key_names, bookmark_names)
-        return l_half + r_half
 
     def generate_s3_key(self, data):
         return  "{:07d}/{}-{}-{}".format(
@@ -374,7 +294,7 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         LOGGER.info("Sending batch with %d messages for table %s to %s",
                     len(messages), messages[0].stream, self.stitch_url)
         with TIMINGS.mode('serializing'):
-            bodies = self.serialize_gate_messages(messages,
+            bodies = serialize_gate_messages(messages,
                                              schema,
                                              key_names,
                                              bookmark_names)

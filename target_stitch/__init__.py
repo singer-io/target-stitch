@@ -73,11 +73,6 @@ class MemoryReporter(Thread):
             time.sleep(30.0)
 
 
-class BatchTooLargeException(TargetStitchException):
-    '''Exception for when the records and schema are so large that we can't
-    create a batch with even one record.'''
-    pass
-
 
 class TargetStitch:
     '''Encapsulates most of the logic of target-stitch.
