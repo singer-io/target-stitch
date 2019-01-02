@@ -5,5 +5,6 @@ HEADER='total	authenticate_token	get_client_info	get_connection_namespace	parse_
 
 echo 'total	authenticate_token	get_client_info	get_connection_namespace	parse_request_body	validate_request	validate_request_validate_entire_request	validate_request_weird_doseq	validate_request_check_individual_record	apply_schema	persist_to_kafka_total	persist_to_kafka_get_config	kafka_encode_transit	kafka_producer_send_data_all	kakfa_producer_create_record	kafka_producer_send_record	kafka_retrieve_metadata' > /opt/code/target-stitch/local-gate-timings.tab
 export TARGET_STITCH_SSL_VERIFY=false
-time head -n 100000 fat.singer.out | target-stitch -c target_config.json
-
+date --rfc-3339=seconds
+time head -n 10000 fat.singer.out | target-stitch -c target_config.json
+date --rfc-3339=seconds
