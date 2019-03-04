@@ -615,7 +615,6 @@ def main():
             # Start socket and process requests.
             while True:
                 connection, address = wrapped_socketobj.accept()
-                LOGGER.info('Request Received from: %s' % str(address))
 
                 data = b''
 
