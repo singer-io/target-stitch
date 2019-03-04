@@ -13,8 +13,11 @@ setup(name='target-stitch',
           'jsonschema==2.6.0',
           'mock==2.0.0',
           'requests==2.20.0',
-          'singer-python==5.0.15',
           'psutil==5.3.1',
+          'python-dateutil==2.8.0',
+          'pytz==2018.9',
+          'backoff==1.3.2',
+          'simplejson==3.11.1',
       ],
       extras_require={
           'dev': [
@@ -26,5 +29,5 @@ setup(name='target-stitch',
           [console_scripts]
           target-stitch=target_stitch:main
       ''',
-      packages=['target_stitch'],
+      packages=['target_stitch','singer-python/singer'],
 )

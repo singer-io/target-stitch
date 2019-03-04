@@ -6,13 +6,13 @@ Target for Stitch API.
 '''
 
 import argparse
-import copy
-import gzip
+import datetime
+import socket
+import ssl
 import http.client
 import io
 import json
 import os
-import re
 import sys
 import time
 import urllib
@@ -20,7 +20,6 @@ import urllib
 from threading import Thread
 from contextlib import contextmanager
 from collections import namedtuple
-from datetime import datetime, timezone
 from decimal import Decimal
 import psutil
 
@@ -40,6 +39,9 @@ DEFAULT_STITCH_URL = 'https://api.stitchdata.com/v2/import/batch'
 DEFAULT_MAX_BATCH_BYTES = 4000000
 DEFAULT_MAX_BATCH_RECORDS = 20000
 SEQUENCE_MULTIPLIER = 1000
+
+#Configuration Values
+CONFIG_OBJ = singer.utils.load_config()
 
 class TargetStitchException(Exception):
     '''A known exception for which we don't need to print a stack trace'''
@@ -492,7 +494,23 @@ def use_batch_url(url):
     LOGGER.info('Using Stitch import URL %s', result)
     return result
 
-def main_impl():
+def delete_old_logs():
+    log_directory = CONFIG_OBJ.get('shared_config', 'log_path')
+    timedelta = datetime.timedelta
+    join = os.path.join
+    datetimeobj = datetime.datetime
+    currentdate = datetimeobj.now()
+    removedate = currentdate - timedelta(days=int(CONFIG_OBJ.get('shared_config', 'log_file_archive_days')))
+    logfilelist = [file for file in os.listdir(log_directory) if os.path.isfile(join(log_directory, file))]
+
+    for logfile in logfilelist:
+        log_filepath = join(log_directory, logfile)
+        if str(logfile).startswith('target.log') and \
+            datetimeobj.utcfromtimestamp(os.path.getmtime(log_filepath)) < removedate:
+            os.remove(log_filepath)
+
+
+def main_impl(configarg_tuplelist=[]):
     '''We wrap this function in main() to add exception handling'''
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -520,6 +538,11 @@ def main_impl():
     parser.add_argument('--batch-delay-seconds', type=float, default=300.0)
     args = parser.parse_args()
 
+    # Add original arguments if they are not passed in.
+    for argtuple in configarg_tuplelist:
+        if getattr(args, argtuple[0], None) is None:
+            setattr(args, argtuple[0], argtuple[1])
+
     if args.verbose:
         LOGGER.setLevel('DEBUG')
     elif args.quiet:
@@ -535,7 +558,7 @@ def main_impl():
     elif not args.config:
         parser.error("config file required if not in dry run mode")
     else:
-        config = json.load(args.config)
+        config = json.loads(args.config) if type(args.config) is str else json.load(args.config)
         token = config.get('token')
         stitch_url = use_batch_url(config.get('stitch_url', DEFAULT_STITCH_URL))
 
@@ -552,20 +575,62 @@ def main_impl():
                                       args.max_batch_bytes,
                                       args.max_batch_records))
 
-    # queue = Queue(args.max_batch_records)
-    reader = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
-    TargetStitch(handlers,
-                 sys.stdout,
-                 args.max_batch_bytes,
-                 args.max_batch_records,
-                 args.batch_delay_seconds).consume(reader)
-    LOGGER.info("Exiting normally")
+    if not CONFIG_OBJ.get('shared_config', 'use_socket'):
+        # queue = Queue(args.max_batch_records)
+        reader = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
+        TargetStitch(handlers,
+                     sys.stdout,
+                     args.max_batch_bytes,
+                     args.max_batch_records,
+                     args.batch_delay_seconds).consume(reader)
+
+    return args, handlers
 
 def main():
     '''Main entry point'''
     try:
         MemoryReporter().start()
-        main_impl()
+        # Call main function to gather parameters and handlers
+        argumentobj, handlerlist = main_impl(CONFIG_OBJ.items('target_config'))
+
+        if CONFIG_OBJ.get('shared_config', 'use_socket'):
+            # Set up socket and SSLContext.
+            socketobj = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sslContext = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
+            sslContext.set_ciphers(CONFIG_OBJ.get('shared_config', 'cipher'))
+            sslContext.load_dh_params(CONFIG_OBJ.get('shared_config', 'dh_param'))
+
+            # SSL wrap the socket
+            wrapped_socketobj = sslContext.wrap_socket(socketobj)
+            wrapped_socketobj.bind((CONFIG_OBJ.get('shared_config', 'socket_host'),
+                                    int(CONFIG_OBJ.get('shared_config', 'socket_port'))))
+            wrapped_socketobj.listen(5)
+
+            # Initialize Target
+            targetobj = TargetStitch(handlerlist, sys.stdout, argumentobj.max_batch_bytes,
+                                     argumentobj.max_batch_records, argumentobj.batch_delay_seconds)
+
+            LOGGER.info('Socket running, waiting for request.')
+
+            # Start socket and process requests.
+            while True:
+                connection, address = wrapped_socketobj.accept()
+                LOGGER.info('Request Received from: %s' % str(address))
+
+                data = b''
+
+                while True:
+                    data_part = connection.recv(1024)
+                    data += data_part
+                    if len(data_part) < 1024:
+                        try:
+                            data = str(data.decode('utf-8'))
+                        except:
+                            LOGGER.exception()
+                            data = ''
+                        delete_old_logs()
+                        targetobj.handle_line(data)
+                        break
 
     # If we catch an exception at the top level we want to log a CRITICAL
     # line to indicate the reason why we're terminating. Sometimes the
@@ -575,10 +640,10 @@ def main():
     # trace for debugging purposes, so re-raise the exception.
     except TargetStitchException as exc:
         for line in str(exc).splitlines():
-            LOGGER.critical(line)
+            LOGGER.exception(line)
         sys.exit(1)
     except Exception as exc:
-        LOGGER.critical(exc)
+        LOGGER.exception(exc)
         raise exc
 
 if __name__ == '__main__':
