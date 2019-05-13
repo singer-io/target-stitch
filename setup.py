@@ -15,6 +15,7 @@ setup(name='target-stitch',
           'requests==2.20.0',
           'singer-python==5.0.15',
           'psutil==5.3.1',
+          'terminaltables==3.1.0',
       ],
       extras_require={
           'dev': [

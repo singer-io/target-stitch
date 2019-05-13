@@ -30,6 +30,7 @@ from jsonschema import ValidationError, Draft4Validator, FormatChecker
 import pkg_resources
 import singer
 import backoff
+from terminaltables import AsciiTable
 
 LOGGER = singer.get_logger().getChild('target_stitch')
 
@@ -341,6 +342,119 @@ def serialize(messages, schema, key_names, bookmark_names, max_bytes, max_record
     return l_half + r_half
 
 
+class TargetStatTracker:
+    def __init__(self):
+        self.counts = {}
+        self.total_records = 0
+        self.batch_count = 0
+        
+        self.start_state = {}
+        self.end_state = {}
+        self.saw_state = False
+        
+        self.times = {}
+        self.start_time = time.time()
+        self.last_batch_written = time.time()
+        self.total_time_seconds = 0
+
+    def process_record(self, message):
+        if not self.counts.get(message.stream):
+            self.counts[message.stream] = 0
+        self.counts[message.stream] += 1
+        self.total_records += 1
+
+    def process_batch(self, messages):
+        batch_write_time = time.time()
+        stream = messages[0].stream
+        if not self.times.get(stream):
+            self.times[stream] = 0
+        self.times[stream] += (batch_write_time - self.last_batch_written)
+        self.last_batch_written = batch_write_time
+        
+        for message in messages:
+            if isinstance(message, singer.RecordMessage):
+                self.process_record(message)
+        self.batch_count += 1
+
+    def process_state(self, state):
+        if not self.saw_state:
+            self.start_state = state
+            self.saw_state = True
+        self.end_state = state
+
+    def get_state_transition(self, stream_name):
+        rep_keys = []
+        start_vals = []
+        stop_vals = []
+        rep_keys += self.start_state.get('bookmarks', {}).get(stream_name, {}).keys()
+        for end_state_rep_key in self.end_state.get('bookmarks', {}).get(stream_name, {}).keys():
+            if end_state_rep_key not in rep_keys:
+                rep_keys.append(end_state_rep_key)
+        ret_rep_keys = []
+        for rep_key in rep_keys:
+            start_val = self.start_state.get('bookmarks',{}).get(stream_name, {}).get(rep_key)
+            stop_val = self.end_state.get('bookmarks',{}).get(stream_name, {}).get(rep_key)
+            has_start_val = (start_val is not None) and (not isinstance(start_val, dict))
+            has_stop_val = (stop_val is not None) and (not isinstance(stop_val, dict)) 
+            
+            if has_start_val or has_stop_val:
+                ret_rep_keys.append(rep_key)
+                if not has_start_val:
+                    start_val = ''
+                if not has_stop_val:
+                    stop_val = '' 
+                start_vals.append(start_val)    
+                stop_vals.append(stop_val)
+                
+        return ret_rep_keys, start_vals, stop_vals
+        
+    def get_stream_stats(self):
+        printstr = ''
+        headers = [['Stream',
+                    'Num Records',
+                    'Time Spent Syncing',
+                    'Write Speed',
+                    'Bookmark Key',
+                    'Start Bookmark',
+                    'Stop Bookmark']]
+
+        rows = []
+        for stream_id, stream_count in self.counts.items():
+            rep_keys, start_vals, stop_vals = self.get_state_transition(stream_id)
+            stream_time = self.times[stream_id]
+            row = [stream_id,
+                   stream_count,
+                   '{:.1f} s'.format(stream_time),
+                   '{:.1f} records/second'.format(stream_count/stream_time),
+                   '\n'.join(rep_keys),
+                   '\n'.join(start_vals),
+                   '\n'.join(stop_vals)]
+            rows.append(row)
+        data = headers + rows
+        table = AsciiTable(data, title='Stream Data')
+        return table.table
+        
+    def print_summary(self):
+        end_time = time.time()
+        total_time = int(end_time - self.start_time)
+        
+        printstr = '\n---------------------------------------------------'
+        printstr += '\n--------------     Sync Summary     ---------------'
+        printstr += '\n---------------------------------------------------\n'
+        printstr += '\n   Total Time = {} s'.format(total_time)
+        printstr += '\n   Total records = {}'.format(self.total_records)
+        printstr += '\n   Write speed = {:.1f} records/second\n'.format(self.total_records/total_time)
+        
+        printstr += '\n   Total batches = {}'.format(self.batch_count)
+        printstr += '\n   Average Batch Size = {}\n\n'.format(str(int(self.total_records/self.batch_count)))
+        printstr += self.get_stream_stats()
+        printstr += '\n\n Start State: {}\n'.format(self.start_state)
+        printstr += '\n End State: {}\n'.format(self.end_state)
+        printstr += '\n---------------------------------------------------'
+        printstr += '\n---------------------------------------------------'
+        printstr += '\n---------------------------------------------------\n'
+        LOGGER.info(printstr)
+
 class TargetStitch:
     '''Encapsulates most of the logic of target-stitch.
 
@@ -358,6 +472,7 @@ class TargetStitch:
         self.messages = []
         self.buffer_size_bytes = 0
         self.state = None
+        self.stat_tracker = TargetStatTracker()
 
         # Mapping from stream name to {'schema': ..., 'key_names': ..., 'bookmark_names': ... }
         self.stream_meta = {}
@@ -392,6 +507,7 @@ class TargetStitch:
                                      stream_meta.key_properties,
                                      stream_meta.bookmark_properties)
             self.time_last_batch_sent = time.time()
+            self.stat_tracker.process_batch(self.messages)
             self.messages = []
             self.buffer_size_bytes = 0
 
@@ -399,6 +515,7 @@ class TargetStitch:
             line = json.dumps(self.state)
             self.state_writer.write("{}\n".format(line))
             self.state_writer.flush()
+            self.stat_tracker.process_state(self.state)
             self.state = None
             TIMINGS.log_timings()
 
@@ -415,6 +532,7 @@ class TargetStitch:
         # If we got a Schema, set the schema and key properties for this
         # stream. Flush the batch, if there is one, in case the schema is
         # different.
+        
         if isinstance(message, singer.SchemaMessage):
             self.flush()
 
@@ -453,8 +571,6 @@ class TargetStitch:
                 LOGGER.debug('Flushing %d bytes, %d messages, after %.2f seconds',
                              self.buffer_size_bytes, len(self.messages), num_seconds)
                 self.flush()
-
-
 
     def consume(self, reader):
         '''Consume all the lines from the queue, flushing when done.'''
@@ -554,11 +670,13 @@ def main_impl():
 
     # queue = Queue(args.max_batch_records)
     reader = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
-    TargetStitch(handlers,
+    target = TargetStitch(handlers,
                  sys.stdout,
                  args.max_batch_bytes,
                  args.max_batch_records,
-                 args.batch_delay_seconds).consume(reader)
+                 args.batch_delay_seconds)
+    target.consume(reader)
+    target.stat_tracker.print_summary()
     LOGGER.info("Exiting normally")
 
 def main():
