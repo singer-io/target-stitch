@@ -347,11 +347,11 @@ class TargetStatTracker:
         self.counts = {}
         self.total_records = 0
         self.batch_count = 0
-        
+
         self.start_state = {}
         self.end_state = {}
         self.saw_state = False
-        
+
         self.times = {}
         self.start_time = time.time()
         self.last_batch_written = time.time()
@@ -370,7 +370,7 @@ class TargetStatTracker:
             self.times[stream] = 0
         self.times[stream] += (batch_write_time - self.last_batch_written)
         self.last_batch_written = batch_write_time
-        
+
         for message in messages:
             if isinstance(message, singer.RecordMessage):
                 self.process_record(message)
@@ -395,19 +395,19 @@ class TargetStatTracker:
             start_val = self.start_state.get('bookmarks',{}).get(stream_name, {}).get(rep_key)
             stop_val = self.end_state.get('bookmarks',{}).get(stream_name, {}).get(rep_key)
             has_start_val = (start_val is not None) and (not isinstance(start_val, dict))
-            has_stop_val = (stop_val is not None) and (not isinstance(stop_val, dict)) 
-            
+            has_stop_val = (stop_val is not None) and (not isinstance(stop_val, dict))
+
             if has_start_val or has_stop_val:
                 ret_rep_keys.append(rep_key)
                 if not has_start_val:
                     start_val = ''
                 if not has_stop_val:
-                    stop_val = '' 
-                start_vals.append(start_val)    
+                    stop_val = ''
+                start_vals.append(start_val)
                 stop_vals.append(stop_val)
-                
+
         return ret_rep_keys, start_vals, stop_vals
-        
+
     def get_stream_stats(self):
         printstr = ''
         headers = [['Stream',
@@ -433,18 +433,18 @@ class TargetStatTracker:
         data = headers + rows
         table = AsciiTable(data, title='Stream Data')
         return table.table
-        
+
     def print_summary(self):
         end_time = time.time()
         total_time = int(end_time - self.start_time)
-        
+
         printstr = '\n---------------------------------------------------'
         printstr += '\n--------------     Sync Summary     ---------------'
         printstr += '\n---------------------------------------------------\n'
         printstr += '\n   Total Time = {} s'.format(total_time)
         printstr += '\n   Total records = {}'.format(self.total_records)
         printstr += '\n   Write speed = {:.1f} records/second\n'.format(self.total_records/total_time)
-        
+
         printstr += '\n   Total batches = {}'.format(self.batch_count)
         printstr += '\n   Average Batch Size = {}\n\n'.format(str(int(self.total_records/self.batch_count)))
         printstr += self.get_stream_stats()
@@ -532,7 +532,7 @@ class TargetStitch:
         # If we got a Schema, set the schema and key properties for this
         # stream. Flush the batch, if there is one, in case the schema is
         # different.
-        
+
         if isinstance(message, singer.SchemaMessage):
             self.flush()
 
