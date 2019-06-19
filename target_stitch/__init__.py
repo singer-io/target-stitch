@@ -32,6 +32,9 @@ import pkg_resources
 import singer
 import backoff
 
+import aiohttp
+import asyncio
+
 LOGGER = singer.get_logger().getChild('target_stitch')
 
 # We use this to store schema and key properties from SCHEMA messages
@@ -42,6 +45,16 @@ DEFAULT_MAX_BATCH_BYTES = 4000000
 DEFAULT_MAX_BATCH_RECORDS = 20000
 SEQUENCE_MULTIPLIER = 1000
 
+def start_loop(loop):
+    asyncio.set_event_loop(loop)
+    loop.run_forever()
+
+new_loop = asyncio.new_event_loop()
+t = Thread(target=start_loop, args=(new_loop,))
+t.start()
+
+mycounter = 0
+pendingRequests = []
 class TargetStitchException(Exception):
     '''A known exception for which we don't need to print a stack trace'''
     pass
@@ -113,7 +126,7 @@ class StitchHandler: # pylint: disable=too-few-public-methods
     def __init__(self, token, stitch_url, max_batch_bytes, max_batch_records):
         self.token = token
         self.stitch_url = stitch_url
-        self.session = requests.Session()
+        self.session = aiohttp.ClientSession()
         self.max_batch_bytes = max_batch_bytes
         self.max_batch_records = max_batch_records
 
@@ -131,15 +144,37 @@ class StitchHandler: # pylint: disable=too-few-public-methods
                           on_backoff=_log_backoff)
     def send(self, data):
         '''Send the given data to Stitch, retrying on exceptions'''
+        global mycounter
+        global pendingRequests
         url = self.stitch_url
         headers = self.headers()
         ssl_verify = True
         if os.environ.get("TARGET_STITCH_SSL_VERIFY") == 'false':
             ssl_verify = False
 
-        response = self.session.post(url, headers=headers, data=data, verify=ssl_verify)
-        response.raise_for_status()
-        return response
+        # if (len(pendingRequests) > 0):
+        #     earliestRequest = pendingRequests[0]
+        #     pendingRequests = pendingRequests[1:-1]
+        #     LOGGER.info("already 2 tasks in the queue. blocking on the first one... %s", earliestRequest.result())
+
+        async def mypost(url, headers, data):
+            global mycounter
+            async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(verify_ssl=False)) as session:
+                LOGGER.info("POST starting: %s %s", url, headers)
+                async with session.post(url, headers=headers, data=data) as response:
+                    LOGGER.info("POST awaiting response ")
+                    await response.text()
+                    LOGGER.info("POST done")
+                    mycounter = mycounter-1
+
+        mycounter = mycounter+1
+        #this schedules the task and the other thread. it will be executed at some point in the future
+        future = asyncio.run_coroutine_threadsafe(mypost(url, headers, data), new_loop)
+
+        pendingRequests.append(future)
+        # future.result()
+        # response.raise_for_status()
+        # return response
 
 
     def handle_batch(self, messages, schema, key_names, bookmark_names=None):
@@ -151,7 +186,7 @@ class StitchHandler: # pylint: disable=too-few-public-methods
 
         '''
 
-        LOGGER.info("Sending batch with %d messages for table %s to %s",
+        LOGGER.debug("Sending batch with %d messages for table %s to %s",
                     len(messages), messages[0].stream, self.stitch_url)
         with TIMINGS.mode('serializing'):
             bodies = serialize(messages,
@@ -164,10 +199,10 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         LOGGER.debug('Split batch into %d requests', len(bodies))
         for i, body in enumerate(bodies):
             with TIMINGS.mode('posting'):
-                LOGGER.debug('Request %d of %d is %d bytes', i + 1, len(bodies), len(body))
+                LOGGER.info('Request %d of %d is %d bytes', i + 1, len(bodies), len(body))
                 try:
                     response = self.send(body)
-                    LOGGER.debug('Response is {}: {}'.format(response, response.content))
+                    #LOGGER.debug('Response is {}: {}'.format(response, response.content))
 
                 # An HTTPError means we got an HTTP response but it was a
                 # bad status code. Try to parse the "message" from the
@@ -487,6 +522,7 @@ def use_batch_url(url):
 
 def main_impl():
     '''We wrap this function in main() to add exception handling'''
+    global mycounter
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '-c', '--config',
@@ -552,7 +588,19 @@ def main_impl():
                  args.max_batch_bytes,
                  args.max_batch_records,
                  args.batch_delay_seconds).consume(reader)
-    LOGGER.info("Exiting normally")
+
+
+    global pendingRequests
+    LOGGER.info("Finishing requests:")
+    for f in pendingRequests:
+        LOGGER.info("finished: %s", f.result())
+
+    while mycounter > 0:
+        LOGGER.info(mycounter)
+        time.sleep(1.0)
+
+    LOGGER.info("Requests complete, stopping loop")
+    new_loop.call_soon_threadsafe(new_loop.stop)
 
 def main():
     '''Main entry point'''
