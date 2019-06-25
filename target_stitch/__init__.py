@@ -16,6 +16,7 @@ import re
 import sys
 import time
 import urllib
+import functools
 
 from threading import Thread
 from contextlib import contextmanager
@@ -53,7 +54,6 @@ new_loop = asyncio.new_event_loop()
 t = Thread(target=start_loop, args=(new_loop,))
 t.start()
 
-mycounter = 0
 pendingRequests = []
 class TargetStitchException(Exception):
     '''A known exception for which we don't need to print a stack trace'''
@@ -130,6 +130,34 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         self.max_batch_bytes = max_batch_bytes
         self.max_batch_records = max_batch_records
 
+
+    @staticmethod
+    #this happens in the event loop
+    def flush_states( state_writer, future):
+        # LOGGER.info("flushing state (%s) for completed future (%s) (%s)", state, future, future.result())
+        global pendingRequests
+        completed_count = 0
+        # from pprint import pformat
+        # LOGGER.info('%s completed', pformat(future))
+        # LOGGER.info("FLUSH BEFORE: %s", pformat(pendingRequests))
+        pendingRequestsUpdate = []
+        for f, s in pendingRequests:
+            # LOGGER.info("FLUSH CHECKING: %s", pformat(f))
+            if f.done():
+                # LOGGER.info("FLUSH DONE: %s DONE", pformat(f))
+                completed_count = completed_count + 1
+                if s:
+                    # LOGGER.info("FLUSH DONE: %s FLUSHING STATE: %s", pformat(f), pformat(s))
+                    line = json.dumps(s)
+                    state_writer.write("{}\n".format(line))
+                    state_writer.flush()
+            else:
+                # LOGGER.info("FLUSH NOT DONE: %s", pformat(f))
+                break;
+
+        pendingRequests = pendingRequests[completed_count:]
+        # LOGGER.info("AFTER FLUSH %s", pformat(pendingRequests))
+
     def headers(self):
         '''Return the headers based on the token'''
         return {
@@ -142,9 +170,8 @@ class StitchHandler: # pylint: disable=too-few-public-methods
                           giveup=singer.utils.exception_is_4xx,
                           max_tries=8,
                           on_backoff=_log_backoff)
-    def send(self, data):
+    def send(self, data, state_writer, state):
         '''Send the given data to Stitch, retrying on exceptions'''
-        global mycounter
         global pendingRequests
         url = self.stitch_url
         headers = self.headers()
@@ -152,32 +179,29 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         if os.environ.get("TARGET_STITCH_SSL_VERIFY") == 'false':
             ssl_verify = False
 
-        # if (len(pendingRequests) > 0):
+        # if (len(pendingRequests) > 3):
         #     earliestRequest = pendingRequests[0]
         #     pendingRequests = pendingRequests[1:-1]
         #     LOGGER.info("already 2 tasks in the queue. blocking on the first one... %s", earliestRequest.result())
 
         async def mypost(url, headers, data):
-            global mycounter
             async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(verify_ssl=False)) as session:
                 LOGGER.info("POST starting: %s %s", url, headers)
                 async with session.post(url, headers=headers, data=data) as response:
                     LOGGER.info("POST awaiting response ")
-                    await response.text()
-                    LOGGER.info("POST done")
-                    mycounter = mycounter-1
+                    return await response.text()
 
-        mycounter = mycounter+1
         #this schedules the task and the other thread. it will be executed at some point in the future
         future = asyncio.run_coroutine_threadsafe(mypost(url, headers, data), new_loop)
+        next_pending_request = (future, state)
+        pendingRequests.append(next_pending_request)
+        future.add_done_callback( functools.partial(self.flush_states, state_writer))
 
-        pendingRequests.append(future)
-        # future.result()
-        # response.raise_for_status()
+        # NB> how do we handle failures? response.raise_for_status()
         # return response
 
 
-    def handle_batch(self, messages, schema, key_names, bookmark_names=None):
+    def handle_batch(self, messages, schema, key_names, bookmark_names=None, state_writer=None, state=None):
         '''Handle messages by sending them to Stitch.
 
         If the serialized form of the messages is too large to fit into a
@@ -186,7 +210,7 @@ class StitchHandler: # pylint: disable=too-few-public-methods
 
         '''
 
-        LOGGER.debug("Sending batch with %d messages for table %s to %s",
+        LOGGER.info("Sending batch with %d messages for table %s to %s",
                     len(messages), messages[0].stream, self.stitch_url)
         with TIMINGS.mode('serializing'):
             bodies = serialize(messages,
@@ -197,11 +221,16 @@ class StitchHandler: # pylint: disable=too-few-public-methods
                                self.max_batch_records)
 
         LOGGER.debug('Split batch into %d requests', len(bodies))
+        #TODO: in the case of split batches, only write state after all batches have been sent
         for i, body in enumerate(bodies):
             with TIMINGS.mode('posting'):
-                LOGGER.info('Request %d of %d is %d bytes', i + 1, len(bodies), len(body))
+                LOGGER.debug('Request %d of %d is %d bytes', i + 1, len(bodies), len(body))
                 try:
-                    response = self.send(body)
+                    flushable_state = None
+                    if i + 1 == len(bodies):
+                        flushable_state = state
+
+                    response = self.send(body, state_writer, flushable_state)
                     #LOGGER.debug('Response is {}: {}'.format(response, response.content))
 
                 # An HTTPError means we got an HTTP response but it was a
@@ -418,17 +447,19 @@ class TargetStitch:
                 handler.handle_batch(self.messages,
                                      stream_meta.schema,
                                      stream_meta.key_properties,
-                                     stream_meta.bookmark_properties)
+                                     stream_meta.bookmark_properties,
+                                     self.state_writer,
+                                     self.state)
             self.time_last_batch_sent = time.time()
             self.messages = []
             self.buffer_size_bytes = 0
 
-        if self.state:
-            line = simplejson.dumps(self.state)
-            self.state_writer.write("{}\n".format(line))
-            self.state_writer.flush()
-            self.state = None
-            TIMINGS.log_timings()
+        # if self.state:
+        #     line = json.dumps(self.state)
+        #     self.state_writer.write("{}\n".format(line))
+        #     self.state_writer.flush()
+        #     self.state = None
+        #     TIMINGS.log_timings()
 
     def handle_line(self, line):
 
@@ -522,8 +553,8 @@ def use_batch_url(url):
 
 def main_impl():
     '''We wrap this function in main() to add exception handling'''
-    global mycounter
     parser = argparse.ArgumentParser()
+
     parser.add_argument(
         '-c', '--config',
         help='Config file',
@@ -590,17 +621,28 @@ def main_impl():
                  args.batch_delay_seconds).consume(reader)
 
 
-    global pendingRequests
-    LOGGER.info("Finishing requests:")
-    for f in pendingRequests:
-        LOGGER.info("finished: %s", f.result())
 
-    while mycounter > 0:
-        LOGGER.info(mycounter)
-        time.sleep(1.0)
+    #NB> we need to wait for this to be empty indicating that all of the
+    #requests have been finished and their states flushed
+
+    global pendingRequests
+    LOGGER.info("Finishing %s requests:", len(pendingRequests))
+    future =  asyncio.run_coroutine_threadsafe(wait_for_completion(), new_loop)
+    future.result()
+    # for idx, f in enumerate(pendingRequests):
+    #     LOGGER.info("waiting on request %s", idx)
+    #     LOGGER.info("finished: %s", f.result())
 
     LOGGER.info("Requests complete, stopping loop")
     new_loop.call_soon_threadsafe(new_loop.stop)
+
+async def wait_for_completion():
+    global pendingRequests
+    while True:
+        LOGGER.info("wait_for_completion: %s", len(pendingRequests))
+        if len(pendingRequests) == 0:
+            break;
+        await asyncio.sleep(1)
 
 def main():
     '''Main entry point'''

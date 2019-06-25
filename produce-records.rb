@@ -41,7 +41,7 @@ schema = {"stream" =>  $TABLE_NAME,
 
 records.puts( schema.to_json() )
 
-50000.times do |i|
+1000000.times do |i|
 	records.puts( {	"stream" =>  $TABLE_NAME, 
 			"record" =>  {	
 					"our_real" =>  1.2, 
@@ -70,6 +70,11 @@ records.puts( schema.to_json() )
 					"our_text2" =>  " I've seen things you people wouldn't believe. Attack ships on fire off the shoulder of Orion. I watched c-beams glitter in the dark near the Tannhauser Gate. All those moments will be lost in time, like tears in rain. Time to die." }, 
 			"time_extracted" =>  "2019-06-18T17:10:05.878611Z", 
 			"version" =>  1560877805878, "type" =>  "RECORD"}.to_json() )
+	if i % 10 == 0
+		records.puts({"value" =>  {"bookmarks" =>  {"dev-public-postgres_full_table_replication_test" =>  
+								{"last_replication_method" =>  "FULL_TABLE", "version" =>  1561124881384, "xmin" =>  i}}, 
+					  "currently_syncing" =>  "dev-public-postgres_full_table_replication_test"}, "type" =>  "STATE"}.to_json())
+	end
 end
 
 
