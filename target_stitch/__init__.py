@@ -149,7 +149,6 @@ class StitchHandler: # pylint: disable=too-few-public-methods
     @staticmethod
     #this happens in the event loop
     def flush_states( state_writer, future):
-        # LOGGER.info("flushing state (%s) for completed future (%s) (%s)", state, future, future.result())
         global pendingRequests
         global sendException
 
@@ -159,23 +158,12 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         #NB> if/when the first coroutine errors out, we will record it for examination by the main thread.
         #if/when this happens, no further flushing of state should ever occur.  the main thread, in fact,
         #should shutdown quickly after it spots the exception
-        # LOGGER.info('FLUSH encountered exception: %s', sendException)
         if sendException is None:
             sendException = future.exception()
 
         if sendException is not None:
             LOGGER.info('FLUSH early exit because of sendException: %s', sendException)
             return
-
-        # try:
-        #     LOGGER.info('%s completed: %s', pformat(future), future.result())
-        # except Exception as ex:
-        #     sendException = ex
-        #     LOGGER.info('shitttttttttttttttttttttttttttttttttttttttt: %s', sendException)
-        #     # traceback.print_exc()
-        #     # LOGGER.info('%s failed: %s', pformat(future), pprint(ex))
-        #     # LOGGER.info("FLUSH BEFORE: %s", pformat(pendingRequests))
-
 
         pendingRequestsUpdate = []
         for f, s in pendingRequests:
