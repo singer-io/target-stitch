@@ -40,6 +40,8 @@ import backoff
 import aiohttp
 import asyncio
 
+import concurrent
+
 LOGGER = singer.get_logger().getChild('target_stitch')
 
 # We use this to store schema and key properties from SCHEMA messages
@@ -50,13 +52,20 @@ DEFAULT_MAX_BATCH_BYTES = 4000000
 DEFAULT_MAX_BATCH_RECORDS = 20000
 SEQUENCE_MULTIPLIER = 1000
 
+ourSession = None
 def start_loop(loop):
-    LOGGER.info('is daemon? %s', t.isDaemon())
     asyncio.set_event_loop(loop)
+    global ourSession
+    timeout = aiohttp.ClientTimeout(total=60)
+    ourSession = aiohttp.ClientSession(connector=aiohttp.TCPConnector(verify_ssl=False), timeout=timeout)
     loop.run_forever()
+    ourSession.close()
 
 new_loop = asyncio.new_event_loop()
+new_loop.set_debug(True)
 t = Thread(target=start_loop, args=(new_loop,))
+
+#The event loop thread should not keep the process alive after the main thread terminates
 t.daemon = True
 
 t.start()
@@ -141,7 +150,6 @@ class StitchHandler: # pylint: disable=too-few-public-methods
     def __init__(self, token, stitch_url, max_batch_bytes, max_batch_records):
         self.token = token
         self.stitch_url = stitch_url
-        self.session = aiohttp.ClientSession()
         self.max_batch_bytes = max_batch_bytes
         self.max_batch_records = max_batch_records
 
@@ -162,7 +170,7 @@ class StitchHandler: # pylint: disable=too-few-public-methods
             sendException = future.exception()
 
         if sendException is not None:
-            LOGGER.info('FLUSH early exit because of sendException: %s', sendException)
+            LOGGER.info('FLUSH early exit because of sendException: %s', pformat(sendException))
             return
 
         pendingRequestsUpdate = []
@@ -200,8 +208,7 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         global pendingRequests
         global sendException
 
-        if sendException:
-            raise sendException
+        check_send_exception()
 
         LOGGER.info("checking sendException: %s", sendException)
         url = self.stitch_url
@@ -216,20 +223,21 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         #     LOGGER.info("already 2 tasks in the queue. blocking on the first one... %s", earliestRequest.result())
 
         async def mypost(url, headers, data):
-            async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(verify_ssl=False)) as session:
-                LOGGER.info("POST starting: %s %s", url, headers)
-                async with session.post(url, headers=headers, data=data, raise_for_status=False) as response:
-                    result_body = None
-                    try:
-                        result_body = await response.json()
-                    except:
-                        pass
+            # async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(verify_ssl=False)) as session:
+            LOGGER.info("POST starting: %s %s", url, headers)
+            global ourSession
+            async with ourSession.post(url, headers=headers, data=data, raise_for_status=False) as response:
+                result_body = None
+                try:
+                    result_body = await response.json()
+                except:
+                    pass
 
-                    LOGGER.info("POST response: %s %s", response.status, result_body)
-                    if response.status // 100 != 2:
-                        raise StitchClientResponseError(response.status, result_body)
+                LOGGER.info("POST response: %s %s", response.status, result_body)
+                if response.status // 100 != 2:
+                    raise StitchClientResponseError(response.status, result_body)
 
-                    return result_body
+                return result_body
 
         #this schedules the task and the other thread. it will be executed at some point in the future
         future = asyncio.run_coroutine_threadsafe(mypost(url, headers, data), new_loop)
@@ -264,37 +272,13 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         for i, body in enumerate(bodies):
             with TIMINGS.mode('posting'):
                 LOGGER.debug('Request %d of %d is %d bytes', i + 1, len(bodies), len(body))
-                try:
-                    flushable_state = None
-                    if i + 1 == len(bodies):
-                        flushable_state = state
+                flushable_state = None
+                if i + 1 == len(bodies):
+                    flushable_state = state
 
-                    response = self.send(body, state_writer, flushable_state)
-                    #LOGGER.debug('Response is {}: {}'.format(response, response.content))
+                response = self.send(body, state_writer, flushable_state)
+                #LOGGER.debug('Response is {}: {}'.format(response, response.content))
 
-                # An StitchClientResponseError means we received > 2xx response coe
-                # Try to parse the "message" from the
-                # json body of the response, since Stitch should include
-                # the human-oriented message in that field. If there are
-                # any errors parsing the message, just include the
-                # stringified response.
-                except StitchClientResponseError as exc:
-                    try:
-                        msg = "{}: {}".format(str(exc.status), exc.response_body)
-                    except: # pylint: disable=bare-except
-                        LOGGER.exception('Exception while processing error response')
-                        msg = '{}'.format(exc)
-                    raise TargetStitchException('Error persisting data for table ' +
-                                                '"' + messages[0].stream +'": ' +
-                                                msg)
-
-                # A ClientConnectorErrormeans we
-                # couldn't even connect to stitch. The exception is likely
-                # to be very long and gross. Log the full details but just
-                # include the summary in the critical error message.
-                except ClientConnectorError as exc:
-                    LOGGER.exception(exc)
-                    raise TargetStitchException('Error connecting to Stitch')
 
 
 class LoggingHandler:  # pylint: disable=too-few-public-methods
@@ -658,8 +642,7 @@ def main_impl():
     global pendingRequests
     while True:
         LOGGER.info("Finishing %s requests:", len(pendingRequests))
-        if sendException:
-            raise sendException
+        check_send_exception()
         if len(pendingRequests) == 0:
             break;
         time.sleep(1)
@@ -667,6 +650,37 @@ def main_impl():
     LOGGER.info("Requests complete, stopping loop")
     new_loop.call_soon_threadsafe(new_loop.stop)
 
+def check_send_exception():
+    try:
+        global sendException
+        if sendException:
+            raise sendException
+
+    # An StitchClientResponseError means we received > 2xx response
+    # Try to parse the "message" from the
+    # json body of the response, since Stitch should include
+    # the human-oriented message in that field. If there are
+    # any errors parsing the message, just include the
+    # stringified response.
+    except StitchClientResponseError as exc:
+        try:
+            msg = "{}: {}".format(str(exc.status), exc.response_body)
+        except: # pylint: disable=bare-except
+            LOGGER.exception('Exception while processing error response')
+            msg = '{}'.format(exc)
+        raise TargetStitchException('Error persisting data to Stitch: ' +
+                                    msg)
+
+    # A ClientConnectorErrormeans we
+    # couldn't even connect to stitch. The exception is likely
+    # to be very long and gross. Log the full details but just
+    # include the summary in the critical error message.
+    except ClientConnectorError as exc:
+        LOGGER.exception(exc)
+        raise TargetStitchException('Error connecting to Stitch')
+
+    except concurrent.futures._base.TimeoutError as exc:
+        raise TargetStitchException("Timeout sending to Stitch")
 
 def main():
     '''Main entry point'''
