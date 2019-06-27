@@ -25,8 +25,12 @@ from datetime import datetime, timezone
 from decimal import Decimal, getcontext
 import psutil
 
-import requests
-from requests.exceptions import RequestException, HTTPError
+# import requests
+# from requests.exceptions import RequestException, HTTPError
+
+import aiohttp
+from aiohttp.client_exceptions import ClientConnectorError, ClientResponseError
+
 from jsonschema import ValidationError, Draft4Validator, FormatChecker
 import simplejson
 import pkg_resources
@@ -47,17 +51,28 @@ DEFAULT_MAX_BATCH_RECORDS = 20000
 SEQUENCE_MULTIPLIER = 1000
 
 def start_loop(loop):
+    LOGGER.info('is daemon? %s', t.isDaemon())
     asyncio.set_event_loop(loop)
     loop.run_forever()
 
 new_loop = asyncio.new_event_loop()
 t = Thread(target=start_loop, args=(new_loop,))
+t.daemon = True
+
 t.start()
 
 pendingRequests = []
+sendException = None
+
 class TargetStitchException(Exception):
     '''A known exception for which we don't need to print a stack trace'''
     pass
+
+class StitchClientResponseError(Exception):
+     def __init__(self, status, response_body):
+         self.response_body = response_body
+         self.status = status
+
 
 class MemoryReporter(Thread):
     '''Logs memory usage every 30 seconds'''
@@ -136,10 +151,32 @@ class StitchHandler: # pylint: disable=too-few-public-methods
     def flush_states( state_writer, future):
         # LOGGER.info("flushing state (%s) for completed future (%s) (%s)", state, future, future.result())
         global pendingRequests
+        global sendException
+
         completed_count = 0
-        # from pprint import pformat
-        # LOGGER.info('%s completed', pformat(future))
-        # LOGGER.info("FLUSH BEFORE: %s", pformat(pendingRequests))
+        from pprint import pformat
+
+        #NB> if/when the first coroutine errors out, we will record it for examination by the main thread.
+        #if/when this happens, no further flushing of state should ever occur.  the main thread, in fact,
+        #should shutdown quickly after it spots the exception
+        # LOGGER.info('FLUSH encountered exception: %s', sendException)
+        if sendException is None:
+            sendException = future.exception()
+
+        if sendException is not None:
+            LOGGER.info('FLUSH early exit because of sendException: %s', sendException)
+            return
+
+        # try:
+        #     LOGGER.info('%s completed: %s', pformat(future), future.result())
+        # except Exception as ex:
+        #     sendException = ex
+        #     LOGGER.info('shitttttttttttttttttttttttttttttttttttttttt: %s', sendException)
+        #     # traceback.print_exc()
+        #     # LOGGER.info('%s failed: %s', pformat(future), pprint(ex))
+        #     # LOGGER.info("FLUSH BEFORE: %s", pformat(pendingRequests))
+
+
         pendingRequestsUpdate = []
         for f, s in pendingRequests:
             # LOGGER.info("FLUSH CHECKING: %s", pformat(f))
@@ -165,14 +202,20 @@ class StitchHandler: # pylint: disable=too-few-public-methods
             'Content-Type': 'application/json'
         }
 
-    @backoff.on_exception(backoff.expo,
-                          RequestException,
-                          giveup=singer.utils.exception_is_4xx,
-                          max_tries=8,
-                          on_backoff=_log_backoff)
+    # @backoff.on_exception(backoff.expo,
+    #                       RequestException,
+    #                       giveup=singer.utils.exception_is_4xx,
+    #                       max_tries=8,
+    #                       on_backoff=_log_backoff)
     def send(self, data, state_writer, state):
         '''Send the given data to Stitch, retrying on exceptions'''
         global pendingRequests
+        global sendException
+
+        if sendException:
+            raise sendException
+
+        LOGGER.info("checking sendException: %s", sendException)
         url = self.stitch_url
         headers = self.headers()
         ssl_verify = True
@@ -187,9 +230,18 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         async def mypost(url, headers, data):
             async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(verify_ssl=False)) as session:
                 LOGGER.info("POST starting: %s %s", url, headers)
-                async with session.post(url, headers=headers, data=data) as response:
-                    LOGGER.info("POST awaiting response ")
-                    return await response.text()
+                async with session.post(url, headers=headers, data=data, raise_for_status=False) as response:
+                    result_body = None
+                    try:
+                        result_body = await response.json()
+                    except:
+                        pass
+
+                    LOGGER.info("POST response: %s %s", response.status, result_body)
+                    if response.status // 100 != 2:
+                        raise StitchClientResponseError(response.status, result_body)
+
+                    return result_body
 
         #this schedules the task and the other thread. it will be executed at some point in the future
         future = asyncio.run_coroutine_threadsafe(mypost(url, headers, data), new_loop)
@@ -221,7 +273,6 @@ class StitchHandler: # pylint: disable=too-few-public-methods
                                self.max_batch_records)
 
         LOGGER.debug('Split batch into %d requests', len(bodies))
-        #TODO: in the case of split batches, only write state after all batches have been sent
         for i, body in enumerate(bodies):
             with TIMINGS.mode('posting'):
                 LOGGER.debug('Request %d of %d is %d bytes', i + 1, len(bodies), len(body))
@@ -233,35 +284,27 @@ class StitchHandler: # pylint: disable=too-few-public-methods
                     response = self.send(body, state_writer, flushable_state)
                     #LOGGER.debug('Response is {}: {}'.format(response, response.content))
 
-                # An HTTPError means we got an HTTP response but it was a
-                # bad status code. Try to parse the "message" from the
+                # An StitchClientResponseError means we received > 2xx response coe
+                # Try to parse the "message" from the
                 # json body of the response, since Stitch should include
                 # the human-oriented message in that field. If there are
                 # any errors parsing the message, just include the
                 # stringified response.
-                except HTTPError as exc:
+                except StitchClientResponseError as exc:
                     try:
-                        response_body = exc.response.json()
-                        if isinstance(response_body, dict) and 'message' in response_body:
-                            msg = response_body['message']
-                        elif isinstance(response_body, dict) and 'error' in response_body:
-                            msg = response_body['error']
-                        else:
-                            msg = '{}: {}'.format(exc.response, exc.response.content)
+                        msg = "{}: {}".format(str(exc.status), exc.response_body)
                     except: # pylint: disable=bare-except
                         LOGGER.exception('Exception while processing error response')
-                        msg = '{}: {}'.format(exc.response, exc.response.content)
+                        msg = '{}'.format(exc)
                     raise TargetStitchException('Error persisting data for table ' +
                                                 '"' + messages[0].stream +'": ' +
                                                 msg)
 
-                # A RequestException other than HTTPError means we
+                # A ClientConnectorErrormeans we
                 # couldn't even connect to stitch. The exception is likely
                 # to be very long and gross. Log the full details but just
-                # include the summary in the critical error message. TODO:
-                # When we expose logs to Stitch users, modify this to
-                # suggest looking at the logs for details.
-                except RequestException as exc:
+                # include the summary in the critical error message.
+                except ClientConnectorError as exc:
                     LOGGER.exception(exc)
                     raise TargetStitchException('Error connecting to Stitch')
 
@@ -624,25 +667,18 @@ def main_impl():
 
     #NB> we need to wait for this to be empty indicating that all of the
     #requests have been finished and their states flushed
-
     global pendingRequests
-    LOGGER.info("Finishing %s requests:", len(pendingRequests))
-    future =  asyncio.run_coroutine_threadsafe(wait_for_completion(), new_loop)
-    future.result()
-    # for idx, f in enumerate(pendingRequests):
-    #     LOGGER.info("waiting on request %s", idx)
-    #     LOGGER.info("finished: %s", f.result())
+    while True:
+        LOGGER.info("Finishing %s requests:", len(pendingRequests))
+        if sendException:
+            raise sendException
+        if len(pendingRequests) == 0:
+            break;
+        time.sleep(1)
 
     LOGGER.info("Requests complete, stopping loop")
     new_loop.call_soon_threadsafe(new_loop.stop)
 
-async def wait_for_completion():
-    global pendingRequests
-    while True:
-        LOGGER.info("wait_for_completion: %s", len(pendingRequests))
-        if len(pendingRequests) == 0:
-            break;
-        await asyncio.sleep(1)
 
 def main():
     '''Main entry point'''
