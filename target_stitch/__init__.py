@@ -57,9 +57,8 @@ def start_loop(loop):
     asyncio.set_event_loop(loop)
     global ourSession
     timeout = aiohttp.ClientTimeout(total=60)
-    ourSession = aiohttp.ClientSession(connector=aiohttp.TCPConnector(verify_ssl=False), timeout=timeout)
+    ourSession = aiohttp.ClientSession(connector=aiohttp.TCPConnector(), timeout=timeout)
     loop.run_forever()
-    ourSession.close()
 
 new_loop = asyncio.new_event_loop()
 new_loop.set_debug(True)
@@ -213,9 +212,9 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         LOGGER.info("checking sendException: %s", sendException)
         url = self.stitch_url
         headers = self.headers()
-        ssl_verify = True
+        verify_ssl = True
         if os.environ.get("TARGET_STITCH_SSL_VERIFY") == 'false':
-            ssl_verify = False
+            verify_ssl = False
 
         # if (len(pendingRequests) > 3):
         #     earliestRequest = pendingRequests[0]
@@ -223,10 +222,9 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         #     LOGGER.info("already 2 tasks in the queue. blocking on the first one... %s", earliestRequest.result())
 
         async def mypost(url, headers, data):
-            # async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(verify_ssl=False)) as session:
-            LOGGER.info("POST starting: %s %s", url, headers)
+            LOGGER.info("POST starting: %s %s ssl(%s)", url, headers, verify_ssl)
             global ourSession
-            async with ourSession.post(url, headers=headers, data=data, raise_for_status=False) as response:
+            async with ourSession.post(url, headers=headers, data=data, raise_for_status=False, verify_ssl=verify_ssl) as response:
                 result_body = None
                 try:
                     result_body = await response.json()
