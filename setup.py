@@ -18,7 +18,7 @@ setup(name='target-stitch',
           'simplejson==3.11.1'
           'aiohttp==3.5.4',
           'cchardet==2.1.4',
-          'aiodns==2.0.0'
+          'aiodns==2.0.0',
       ],
       extras_require={
           'dev': [

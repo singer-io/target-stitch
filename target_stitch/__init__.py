@@ -61,7 +61,7 @@ def start_loop(loop):
     loop.run_forever()
 
 new_loop = asyncio.new_event_loop()
-new_loop.set_debug(True)
+# new_loop.set_debug(True)
 t = Thread(target=start_loop, args=(new_loop,))
 
 #The event loop thread should not keep the process alive after the main thread terminates
@@ -156,13 +156,14 @@ class StitchHandler: # pylint: disable=too-few-public-methods
     @staticmethod
     #this happens in the event loop
     def flush_states( state_writer, future):
+        LOGGER.info('FLUSH states..................')
         global pendingRequests
         global sendException
 
         completed_count = 0
         from pprint import pformat
 
-        #NB> if/when the first coroutine errors out, we will record it for examination by the main thread.
+        #NB> if/when the first coroutine errors out, we will record it for examination by the main threa.
         #if/when this happens, no further flushing of state should ever occur.  the main thread, in fact,
         #should shutdown quickly after it spots the exception
         if sendException is None:
@@ -197,11 +198,6 @@ class StitchHandler: # pylint: disable=too-few-public-methods
             'Content-Type': 'application/json'
         }
 
-    # @backoff.on_exception(backoff.expo,
-    #                       RequestException,
-    #                       giveup=singer.utils.exception_is_4xx,
-    #                       max_tries=8,
-    #                       on_backoff=_log_backoff)
     def send(self, data, state_writer, state):
         '''Send the given data to Stitch, retrying on exceptions'''
         global pendingRequests
@@ -216,29 +212,8 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         if os.environ.get("TARGET_STITCH_SSL_VERIFY") == 'false':
             verify_ssl = False
 
-        # if (len(pendingRequests) > 3):
-        #     earliestRequest = pendingRequests[0]
-        #     pendingRequests = pendingRequests[1:-1]
-        #     LOGGER.info("already 2 tasks in the queue. blocking on the first one... %s", earliestRequest.result())
-
-        async def mypost(url, headers, data):
-            LOGGER.info("POST starting: %s %s ssl(%s)", url, headers, verify_ssl)
-            global ourSession
-            async with ourSession.post(url, headers=headers, data=data, raise_for_status=False, verify_ssl=verify_ssl) as response:
-                result_body = None
-                try:
-                    result_body = await response.json()
-                except:
-                    pass
-
-                LOGGER.info("POST response: %s %s", response.status, result_body)
-                if response.status // 100 != 2:
-                    raise StitchClientResponseError(response.status, result_body)
-
-                return result_body
-
         #this schedules the task and the other thread. it will be executed at some point in the future
-        future = asyncio.run_coroutine_threadsafe(mypost(url, headers, data), new_loop)
+        future = asyncio.run_coroutine_threadsafe(post_coroutine(url, headers, data, verify_ssl), new_loop)
         next_pending_request = (future, state)
         pendingRequests.append(next_pending_request)
         future.add_done_callback( functools.partial(self.flush_states, state_writer))
@@ -679,6 +654,25 @@ def check_send_exception():
 
     except concurrent.futures._base.TimeoutError as exc:
         raise TargetStitchException("Timeout sending to Stitch")
+
+@backoff.on_exception(backoff.expo,
+                      StitchClientResponseError,
+                      max_tries=5,
+                      on_backoff=_log_backoff)
+async def post_coroutine(url, headers, data, verify_ssl):
+    LOGGER.info("POST starting: %s %s ssl(%s)", url, headers, verify_ssl)
+    global ourSession
+    async with ourSession.post(url, headers=headers, data=data, raise_for_status=False, verify_ssl=verify_ssl) as response:
+        result_body = None
+        try:
+            result_body = await response.json()
+        except:
+            pass
+        LOGGER.info("POST response: %s %s", response.status, result_body)
+        if response.status // 100 != 2:
+            raise StitchClientResponseError(response.status, result_body)
+
+        return result_body
 
 def main():
     '''Main entry point'''
