@@ -612,6 +612,11 @@ def main_impl():
 
     #NB> we need to wait for this to be empty indicating that all of the
     #requests have been finished and their states flushed
+    finish_requests()
+    LOGGER.info("Requests complete, stopping loop")
+    new_loop.call_soon_threadsafe(new_loop.stop)
+
+def finish_requests():
     global pendingRequests
     while True:
         LOGGER.info("Finishing %s requests:", len(pendingRequests))
@@ -620,8 +625,6 @@ def main_impl():
             break;
         time.sleep(1)
 
-    LOGGER.info("Requests complete, stopping loop")
-    new_loop.call_soon_threadsafe(new_loop.stop)
 
 def check_send_exception():
     try:
@@ -655,9 +658,14 @@ def check_send_exception():
     except concurrent.futures._base.TimeoutError as exc:
         raise TargetStitchException("Timeout sending to Stitch")
 
+
+def exception_is_4xx(ex):
+    return 400 <= ex.status < 500
+
 @backoff.on_exception(backoff.expo,
                       StitchClientResponseError,
                       max_tries=5,
+                      giveup=exception_is_4xx,
                       on_backoff=_log_backoff)
 async def post_coroutine(url, headers, data, verify_ssl):
     LOGGER.info("POST starting: %s %s ssl(%s)", url, headers, verify_ssl)
