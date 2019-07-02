@@ -16,6 +16,55 @@ def token():
         raise Exception('Integration tests require TARGET_STITCH_TEST_TOKEN environment variable to be set')
     return token
 
+
+def make_200_response_in_order(requests_sent):
+    class FakeResponse:
+
+        def __init__(self, requests_sent):
+            self.requests_sent = requests_sent
+
+        async def json(self):
+            self.status = 200
+            await asyncio.sleep(0)
+            return {"status" : "finished request {}".format(requests_sent)}
+
+    return FakeResponse(requests_sent)
+
+def make_200_response_out_of_order(requests_sent):
+    class FakeResponse:
+
+        def __init__(self, requests_sent):
+            self.requests_sent = requests_sent
+
+        async def json(self):
+            self.status = 200
+            if self.requests_sent == 1:
+                await asyncio.sleep(3)
+            return {"status" : "finished request {}".format(requests_sent)}
+
+    return FakeResponse(requests_sent)
+
+class FakePost:
+    def __init__(self, requests_sent, makeFakeResponse):
+        self.requests_sent = requests_sent
+        self.makeFakeResponse = makeFakeResponse
+
+    async def __aenter__(self):
+        return self.makeFakeResponse(self.requests_sent)
+
+    async def __aexit__(self, exc_type, exc, tb):
+        await asyncio.sleep(1)
+
+class FakeSession:
+    def __init__(self, makeFakeResponse):
+        self.requests_sent = 0
+        self.makeFakeResponse = makeFakeResponse
+
+    def post(self, url, *, data, **kwargs):
+        self.requests_sent = self.requests_sent + 1
+        return FakePost(self.requests_sent, self.makeFakeResponse)
+
+
 class IntegrationTest(unittest.TestCase):
     def setUp(self):
         handler = StitchHandler(token(),
@@ -69,10 +118,11 @@ class AsyncPushToGate(unittest.TestCase):
                                   "schema": {"type": "object",
                                              "properties": {"id": {"type": "integer"},
                                                             "name": {"type": "string"}}}})]
-        make_fake_session(0, 200, {"status" : "you did it!"})
+
 
     # 2 requests both with state. in order.
     def test_2_requests_in_order(self):
+        target_stitch.ourSession = FakeSession(make_200_response_in_order)
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 1, "name": "Mike"}}))
         self.queue.append(json.dumps({"type":"STATE", "value":{"bookmarks":{"chicken_stream":{"id": 1 }}}}))
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 2, "name": "Paul"}}))
@@ -92,44 +142,31 @@ class AsyncPushToGate(unittest.TestCase):
         self.assertEqual( emitted_state[1], {'bookmarks': {'chicken_stream': {'id': 3}}})
 
 
-def make_fake_session(sleep_time, status, result_body):
-    target_stitch.ourSession = FakeSession(sleep_time, status, result_body)
+    def test_2_requests_out_of_order(self):
+        target_stitch.ourSession = FakeSession(make_200_response_out_of_order)
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 1, "name": "Mike"}}))
+        self.queue.append(json.dumps({"type":"STATE", "value":{"bookmarks":{"chicken_stream":{"id": 1 }}}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 2, "name": "Paul"}}))
+        #will flush here after 2 records
 
-class FakeResponse:
-    def __init__(self, sleep_time, status, result_body):
-        self.status = status
-        self.sleep_time = sleep_time
-        self.result_body = result_body
+        self.queue.append(json.dumps({"type":"STATE", "value":{"bookmarks":{"chicken_stream":{"id": 2 }}}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 3, "name": "Harrsion"}}))
+        self.queue.append(json.dumps({"type":"STATE", "value":{"bookmarks":{"chicken_stream":{"id": 3 }}}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 4, "name": "Cathy"}}))
+        #will flush here after 2 records
 
-    async def json(self):
-        await asyncio.sleep(self.sleep_time)
-        return self.result_body
+        self.target_stitch.consume(self.queue)
+        finish_requests()
 
-class FakePost:
-    def __init__(self, sleep_time, status, result_body):
-        self.sleep_time = sleep_time
-        self.status = status
-        self.result_body = result_body
-
-    async def __aenter__(self):
-        return FakeResponse(self.sleep_time, self.status, self.result_body)
-
-    async def __aexit__(self, exc_type, exc, tb):
-        await asyncio.sleep(1)
-
-class FakeSession:
-    def __init__(self, sleep_time, status, result_body):
-        self.sleep_time = sleep_time
-        self.status = status
-        self.result_body = result_body
-
-    def post(self, url, *, data, **kwargs):
-        return FakePost(self.sleep_time, self.status, self.result_body)
+        emitted_state = list(map(json.loads, self.out.getvalue().strip().split('\n')))
+        self.assertEqual(len(emitted_state), 2)
+        self.assertEqual( emitted_state[0], {'bookmarks': {'chicken_stream': {'id': 1}}})
+        self.assertEqual( emitted_state[1], {'bookmarks': {'chicken_stream': {'id': 3}}})
 
 if __name__== "__main__":
     test1 = AsyncPushToGate()
     test1.setUp()
-    test1.test_2_requests_in_order()
+    test1.test_2_requests_out_of_order()
 
 
 
