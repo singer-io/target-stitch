@@ -12,8 +12,8 @@ jobs:
             python3 -m venv ~/.virtualenvs/target-stitch
             source ~/.virtualenvs/target-stitch/bin/activate
             pip install -U pip setuptools
-            pip install -U pylint
             pip install -e .[dev]
+            pip install -U pylint
       - run:
           name: 'Run tests'
           command: |
