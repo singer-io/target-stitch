@@ -142,6 +142,26 @@ class AsyncPushToGate(unittest.TestCase):
         self.assertEqual( emitted_state[1], {'bookmarks': {'chicken_stream': {'id': 3}}})
 
 
+    # 2 requests last has state. first does not. in order
+    def test_2_requests_in_order_first_has_no_state(self):
+        target_stitch.ourSession = FakeSession(make_200_response_in_order)
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 1, "name": "Mike"}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 2, "name": "Paul"}}))
+        #will flush here after 2 records
+        self.queue.append(json.dumps({"type":"STATE", "value":{"bookmarks":{"chicken_stream":{"id": 2 }}}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 3, "name": "Harrsion"}}))
+        self.queue.append(json.dumps({"type":"STATE", "value":{"bookmarks":{"chicken_stream":{"id": 3 }}}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 4, "name": "Cathy"}}))
+        #will flush here after 2 records
+
+        self.target_stitch.consume(self.queue)
+        finish_requests()
+
+        emitted_state = list(map(json.loads, self.out.getvalue().strip().split('\n')))
+        self.assertEqual(len(emitted_state), 1)
+        self.assertEqual( emitted_state[0], {'bookmarks': {'chicken_stream': {'id': 3}}})
+
+    # 2 requests both with state. out of order return
     def test_2_requests_out_of_order(self):
         target_stitch.ourSession = FakeSession(make_200_response_out_of_order)
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 1, "name": "Mike"}}))
@@ -163,10 +183,12 @@ class AsyncPushToGate(unittest.TestCase):
         self.assertEqual( emitted_state[0], {'bookmarks': {'chicken_stream': {'id': 1}}})
         self.assertEqual( emitted_state[1], {'bookmarks': {'chicken_stream': {'id': 3}}})
 
+
+
 if __name__== "__main__":
     test1 = AsyncPushToGate()
     test1.setUp()
-    test1.test_2_requests_out_of_order()
+    test1.test_2_requests_in_order_first_has_no_state()
 
 
 
@@ -182,8 +204,7 @@ if __name__== "__main__":
 
 
 
-# 2 requests last has state. first does not. in order
-# 2 requests both with state. out of order return
+
 # 2 requests both with state. in order. first errors
 # 2 requests both with state. in order second errors
 # 2 requests both with state. out of order. first errors
