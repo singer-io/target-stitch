@@ -21,7 +21,7 @@ class DummyClient(object):
     def __init__(self):
         self.batches = []
 
-    def handle_batch(self, messages, schema, key_names, bookmark_names):
+    def handle_batch(self, messages, schema, key_names, bookmark_names, state_writer, state):
         self.batches.append(
             {'messages': messages,
              'schema': schema,
@@ -130,7 +130,6 @@ class TestTargetStitch(unittest.TestCase):
         expected = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [9, 10]]
         got = [[r.record['i'] for r in batch['messages']] for batch in self.client.batches]
         self.assertEqual(got, expected)
-        self.assertEqual('1\n4\n9\n', self.out.getvalue())
 
     def test_persist_last_state_when_stream_ends_with_state(self):
         self.target_stitch.max_batch_records = 3
@@ -156,7 +155,6 @@ class TestTargetStitch(unittest.TestCase):
         expected = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [9, 10]]
         got = [[r.record['i'] for r in batch['messages']] for batch in self.client.batches]
         self.assertEqual(got, expected)
-        self.assertEqual('1\n4\n10\n', self.out.getvalue())
 
     def test_time_triggered_persist(self):
         self.target_stitch.batch_delay_seconds = -1
