@@ -7,9 +7,9 @@ import os
 import json
 import asyncio
 try:
-    from tests.gate_mocks import mock_in_order_all_200, mock_out_of_order_all_200, mock_in_order_first_errors, mock_in_order_second_errors, mock_out_of_order_first_errors, mock_out_of_order_second_errors
+    from tests.gate_mocks import mock_in_order_all_200, mock_out_of_order_all_200, mock_in_order_first_errors, mock_in_order_second_errors, mock_out_of_order_first_errors, mock_out_of_order_second_errors, mock_out_of_order_both_error, mock_in_order_both_error
 except ImportError:
-    from gate_mocks  import mock_in_order_all_200, mock_out_of_order_all_200, mock_in_order_first_errors, mock_in_order_second_errors, mock_out_of_order_first_errors, mock_out_of_order_second_errors
+    from gate_mocks  import mock_in_order_all_200, mock_out_of_order_all_200, mock_in_order_first_errors, mock_in_order_second_errors, mock_out_of_order_first_errors, mock_out_of_order_second_errors, mock_out_of_order_both_error, mock_in_order_both_error
 
 from nose.tools import nottest
 
@@ -103,34 +103,11 @@ class AsyncPushToGate(unittest.TestCase):
         self.assertEqual(len(emitted_state), 1)
         self.assertEqual( emitted_state[0], {'bookmarks': {'chicken_stream': {'id': 3}}})
 
-    # 2 requests
-    # both with state.
-    # out of order responses
-    def test_requests_out_of_order(self):
-        target_stitch.ourSession = FakeSession(mock_out_of_order_all_200)
-        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 1, "name": "Mike"}}))
-        self.queue.append(json.dumps({"type":"STATE", "value":{"bookmarks":{"chicken_stream":{"id": 1 }}}}))
-        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 2, "name": "Paul"}}))
-        #will flush here after 2 records
-
-        self.queue.append(json.dumps({"type":"STATE", "value":{"bookmarks":{"chicken_stream":{"id": 2 }}}}))
-        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 3, "name": "Harrsion"}}))
-        self.queue.append(json.dumps({"type":"STATE", "value":{"bookmarks":{"chicken_stream":{"id": 3 }}}}))
-        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 4, "name": "Cathy"}}))
-        #will flush here after 2 records
-
-        self.target_stitch.consume(self.queue)
-        finish_requests()
-
-        emitted_state = list(map(json.loads, self.out.getvalue().strip().split('\n')))
-        self.assertEqual(len(emitted_state), 2)
-        self.assertEqual( emitted_state[0], {'bookmarks': {'chicken_stream': {'id': 1}}})
-        self.assertEqual( emitted_state[1], {'bookmarks': {'chicken_stream': {'id': 3}}})
 
     # 2 requests.
     # both with state.
     # in order
-    # first request errors
+    # first sent request errors
     def test_requests_in_order_first_errors(self):
         target_stitch.ourSession = FakeSession(mock_in_order_first_errors)
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 1, "name": "Mike"}}))
@@ -185,6 +162,62 @@ class AsyncPushToGate(unittest.TestCase):
         emitted_state = self.out.getvalue().strip().split('\n')
         self.assertEqual(1, len(emitted_state))
         self.assertEqual({'bookmarks': {'chicken_stream': {'id': 1}}}, json.loads(emitted_state[0]))
+
+    # 2 requests.
+    # both with state.
+    # in order
+    # both requests errors
+    def test_requests_in_order_both_errors(self):
+        target_stitch.ourSession = FakeSession(mock_in_order_both_error)
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 1, "name": "Mike"}}))
+        self.queue.append(json.dumps({"type":"STATE", "value":{"bookmarks":{"chicken_stream":{"id": 1 }}}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 2, "name": "Paul"}}))
+        #will flush here after 2 records
+        self.queue.append(json.dumps({"type":"STATE", "value":{"bookmarks":{"chicken_stream":{"id": 2 }}}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 3, "name": "Harrsion"}}))
+        self.queue.append(json.dumps({"type":"STATE", "value":{"bookmarks":{"chicken_stream":{"id": 3 }}}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 4, "name": "Cathy"}}))
+        #will flush here after 2 records
+
+        self.target_stitch.consume(self.queue)
+        our_exception = None
+        try:
+            finish_requests()
+        except Exception as ex:
+            our_exception = ex
+
+        self.assertIsNotNone(our_exception)
+        self.assertTrue(isinstance(our_exception, TargetStitchException))
+
+        #no state is emitted
+        self.assertEqual(self.out.getvalue(), '')
+
+
+
+
+    # 2 requests
+    # both with state.
+    # out of order responses
+    def test_requests_out_of_order(self):
+        target_stitch.ourSession = FakeSession(mock_out_of_order_all_200)
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 1, "name": "Mike"}}))
+        self.queue.append(json.dumps({"type":"STATE", "value":{"bookmarks":{"chicken_stream":{"id": 1 }}}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 2, "name": "Paul"}}))
+        #will flush here after 2 records
+
+        self.queue.append(json.dumps({"type":"STATE", "value":{"bookmarks":{"chicken_stream":{"id": 2 }}}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 3, "name": "Harrsion"}}))
+        self.queue.append(json.dumps({"type":"STATE", "value":{"bookmarks":{"chicken_stream":{"id": 3 }}}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 4, "name": "Cathy"}}))
+        #will flush here after 2 records
+
+        self.target_stitch.consume(self.queue)
+        finish_requests()
+
+        emitted_state = list(map(json.loads, self.out.getvalue().strip().split('\n')))
+        self.assertEqual(len(emitted_state), 2)
+        self.assertEqual( emitted_state[0], {'bookmarks': {'chicken_stream': {'id': 1}}})
+        self.assertEqual( emitted_state[1], {'bookmarks': {'chicken_stream': {'id': 3}}})
 
     # 2 requests.
     # both with state.
@@ -261,7 +294,36 @@ class AsyncPushToGate(unittest.TestCase):
         self.assertEqual(1, len(emitted_state))
         self.assertEqual({'bookmarks': {'chicken_stream': {'id': 1}}}, json.loads(emitted_state[0]))
 
+    # 2 requests.
+    # both with state.
+    # out of order
+    # both requests errors
+    def test_requests_out_of_order_both_errors(self):
+        target_stitch.ourSession = FakeSession(mock_out_of_order_both_error)
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 1, "name": "Mike"}}))
+        self.queue.append(json.dumps({"type":"STATE", "value":{"bookmarks":{"chicken_stream":{"id": 1 }}}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 2, "name": "Paul"}}))
+        #will flush here after 2 records
+        self.queue.append(json.dumps({"type":"STATE", "value":{"bookmarks":{"chicken_stream":{"id": 2 }}}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 3, "name": "Harrsion"}}))
+        self.queue.append(json.dumps({"type":"STATE", "value":{"bookmarks":{"chicken_stream":{"id": 3 }}}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 4, "name": "Cathy"}}))
+        #will flush here after 2 records
+
+        self.target_stitch.consume(self.queue)
+        our_exception = None
+        try:
+            finish_requests()
+        except Exception as ex:
+            our_exception = ex
+
+        self.assertIsNotNone(our_exception)
+        self.assertTrue(isinstance(our_exception, TargetStitchException))
+
+        #no state is emitted
+        self.assertEqual(self.out.getvalue(), '')
+
 if __name__== "__main__":
     test1 = AsyncPushToGate()
     test1.setUp()
-    test1.test_requests_out_of_order_second_errors()
+    test1.test_requests_in_order_both_errors()
