@@ -1,6 +1,7 @@
 import unittest
+import singer
 import target_stitch
-from target_stitch import StitchHandler, TargetStitchException, DEFAULT_STITCH_URL, ourSession, finish_requests
+from target_stitch import StitchHandler, TargetStitchException, DEFAULT_STITCH_URL, finish_requests
 import io
 import os
 import json
@@ -9,6 +10,10 @@ try:
     from tests.gate_mocks import mock_in_order_all_200, mock_out_of_order_all_200, mock_in_order_first_errors, mock_in_order_second_errors, mock_out_of_order_first_errors, mock_out_of_order_second_errors
 except ImportError:
     from gate_mocks  import mock_in_order_all_200, mock_out_of_order_all_200, mock_in_order_first_errors, mock_in_order_second_errors, mock_out_of_order_first_errors, mock_out_of_order_second_errors
+
+from nose.tools import nottest
+
+LOGGER = singer.get_logger().getChild('target_stitch')
 
 def load_sample_lines(filename):
     with open('tests/' + filename) as fp:
@@ -93,7 +98,8 @@ class AsyncPushToGate(unittest.TestCase):
                                   "schema": {"type": "object",
                                              "properties": {"id": {"type": "integer"},
                                                             "name": {"type": "string"}}}})]
-
+        target_stitch.sendException = None
+        target_stitch.pendingRequests = []
 
     # 2 requests
     # both with state
@@ -117,6 +123,7 @@ class AsyncPushToGate(unittest.TestCase):
         self.assertEqual(len(emitted_state), 2)
         self.assertEqual( emitted_state[0], {'bookmarks': {'chicken_stream': {'id': 1}}})
         self.assertEqual( emitted_state[1], {'bookmarks': {'chicken_stream': {'id': 3}}})
+
 
 
     # 2 requests
