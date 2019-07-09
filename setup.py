@@ -19,7 +19,8 @@ setup(name='target-stitch',
       extras_require={
           'dev': [
               'nose==1.3.7',
-              'pylint==2.1.1',
+              'astroid==2.1.0',
+              'pylint==2.1.1'
           ]
       },
       entry_points='''

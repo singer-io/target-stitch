@@ -265,6 +265,8 @@ class ValidatingHandler: # pylint: disable=too-few-public-methods
                     raise TargetStitchException(
                         'Record does not pass schema validation: {}'.format(e))
 
+        # pylint: disable=undefined-loop-variable
+        # NB: This seems incorrect as there's a chance message is not defined
         LOGGER.info('%s (%s): Batch is valid',
                     message.stream,
                     len(messages))
