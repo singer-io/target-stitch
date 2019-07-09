@@ -21,7 +21,7 @@ from threading import Thread
 from contextlib import contextmanager
 from collections import namedtuple
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, getcontext
 import psutil
 
 import requests
@@ -242,6 +242,9 @@ class LoggingHandler:  # pylint: disable=too-few-public-methods
 
 class ValidatingHandler: # pylint: disable=too-few-public-methods
     '''Validates input messages against their schema.'''
+
+    def __init__(self):
+        getcontext().prec = 10000
 
     def handle_batch(self, messages, schema, key_names, bookmark_names=None): # pylint: disable=no-self-use,unused-argument
         '''Handles messages by validating them against schema.'''
