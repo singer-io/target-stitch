@@ -21,7 +21,7 @@ from threading import Thread
 from contextlib import contextmanager
 from collections import namedtuple
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, getcontext
 import psutil
 
 import requests
@@ -243,6 +243,9 @@ class LoggingHandler:  # pylint: disable=too-few-public-methods
 class ValidatingHandler: # pylint: disable=too-few-public-methods
     '''Validates input messages against their schema.'''
 
+    def __init__(self):
+        getcontext().prec = 10000
+
     def handle_batch(self, messages, schema, key_names, bookmark_names=None): # pylint: disable=no-self-use,unused-argument
         '''Handles messages by validating them against schema.'''
         schema = float_to_decimal(schema)
@@ -262,6 +265,8 @@ class ValidatingHandler: # pylint: disable=too-few-public-methods
                     raise TargetStitchException(
                         'Record does not pass schema validation: {}'.format(e))
 
+        # pylint: disable=undefined-loop-variable
+        # NB: This seems incorrect as there's a chance message is not defined
         LOGGER.info('%s (%s): Batch is valid',
                     message.stream,
                     len(messages))
