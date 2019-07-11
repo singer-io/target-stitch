@@ -94,17 +94,6 @@ class Timings:
 TIMINGS = Timings()
 
 
-def float_to_decimal(value):
-    '''Walk the given data structure and turn all instances of float into
-    double.'''
-    if isinstance(value, float):
-        return Decimal(str(value))
-    if isinstance(value, list):
-        return [float_to_decimal(child) for child in value]
-    if isinstance(value, dict):
-        return {k: float_to_decimal(v) for k, v in value.items()}
-    return value
-
 class BatchTooLargeException(TargetStitchException):
     '''Exception for when the records and schema are so large that we can't
     create a batch with even one record.'''
@@ -249,16 +238,14 @@ class ValidatingHandler: # pylint: disable=too-few-public-methods
 
     def handle_batch(self, messages, schema, key_names, bookmark_names=None): # pylint: disable=no-self-use,unused-argument
         '''Handles messages by validating them against schema.'''
-        schema = float_to_decimal(schema)
         validator = Draft4Validator(schema, format_checker=FormatChecker())
         for i, message in enumerate(messages):
             if isinstance(message, singer.RecordMessage):
-                data = float_to_decimal(message.record)
                 try:
-                    validator.validate(data)
+                    validator.validate(message.record)
                     if key_names:
                         for k in key_names:
-                            if k not in data:
+                            if k not in message.record:
                                 raise TargetStitchException(
                                     'Message {} is missing key property {}'.format(
                                         i, k))
