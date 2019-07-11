@@ -245,6 +245,13 @@ class TestSerialize(unittest.TestCase):
                     colors.append((action))
         return colors
 
+    def create_raw_record(self, value):
+        return '{"value": ' + value + '}'
+
+    def create_raw_record_message(self,raw_record):
+        return '{"type": "RECORD", "stream": "test", "record": ' + raw_record + '}'
+
+
     def test_splits_batches(self):
         self.assertEqual(1, len(self.serialize_with_limit(2000)))
         self.assertEqual(2, len(self.serialize_with_limit(1000)))
@@ -284,6 +291,30 @@ class TestSerialize(unittest.TestCase):
         actual = json.loads(batch)["messages"][0]["time_extracted"]
 
         self.assertEqual(expected, actual)
+
+    def test_deserialize_and_serialize_decimals(self):
+        decimal_strs = [
+            '-9999999999999999.9999999999999999999999',
+            '0',
+            '9999999999999999.9999999999999999999999',
+            '-7187498962233394.3739812942138415666763',
+            '9273972760690975.2044306442955715221042',
+            '29515565286974.1188802122612813004366',
+            '9176089101347578.2596296292040288441238',
+            '-8416853039392703.306423225471199148379',
+            '1285266411314091.3002668125515694162268',
+            '6051872750342125.3812886238958681227336',
+            '-1132031605459408.5571559429308939781468',
+            '-6387836755056303.0038029604189860431045',
+            '4526059300505414'
+        ]
+        for decimal_str in decimal_strs:
+            record_str = self.create_raw_record(decimal_str)
+            record_message_str = self.create_raw_record_message(record_str)
+            deserialized_record = singer.parse_message(record_message_str).record
+            serialized_record_str = simplejson.dumps(deserialized_record)
+            self.assertEqual(record_str, serialized_record_str)
+
 
 class test_use_batch_url(unittest.TestCase):
 
