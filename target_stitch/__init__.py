@@ -234,7 +234,7 @@ class ValidatingHandler: # pylint: disable=too-few-public-methods
     '''Validates input messages against their schema.'''
 
     def __init__(self):
-        getcontext().prec = 10000
+        getcontext().prec = 76
 
     def handle_batch(self, messages, schema, key_names, bookmark_names=None): # pylint: disable=no-self-use,unused-argument
         '''Handles messages by validating them against schema.'''
