@@ -446,7 +446,7 @@ class TargetStitch:
 
         '''
 
-        message = singer.parse_message(line)
+        message = overloaded_parse_message(line)
 
         # If we got a Schema, set the schema and key properties for this
         # stream. Flush the batch, if there is one, in case the schema is
@@ -670,6 +670,50 @@ async def post_coroutine(url, headers, data, verify_ssl):
             raise StitchClientResponseError(response.status, result_body)
 
         return result_body
+
+def _required_key(msg, k):
+    if k not in msg:
+        raise Exception("Message is missing required key '{}': {}".format(k, msg))
+
+    return msg[k]
+
+
+def overloaded_parse_message(msg):
+    """Parse a message string into a Message object."""
+
+    # We are not using Decimals for parsing here.
+    # We recognize that exposes data to potentially
+    # lossy conversions.  However, this will affect
+    # very few data points and we have chosen to
+    # leave conversion as is for now.
+    obj = json.loads(msg)
+    msg_type = _required_key(obj, 'type')
+
+    if msg_type == 'RECORD':
+        # time_extracted = obj.get('time_extracted')
+        # if time_extracted:
+        #     time_extracted = dateutil.parser.parse(time_extracted)
+        return singer.RecordMessage(stream=_required_key(obj, 'stream'),
+                             record=_required_key(obj, 'record'),
+                             version=obj.get('version'))
+                             # time_extracted=time_extracted)
+
+
+    elif msg_type == 'SCHEMA':
+        return singer.SchemaMessage(stream=_required_key(obj, 'stream'),
+                             schema=_required_key(obj, 'schema'),
+                             key_properties=_required_key(obj, 'key_properties'),
+                             bookmark_properties=obj.get('bookmark_properties'))
+
+    elif msg_type == 'STATE':
+        return singer.StateMessage(value=_required_key(obj, 'value'))
+
+    elif msg_type == 'ACTIVATE_VERSION':
+        return singer.ActivateVersionMessage(stream=_required_key(obj, 'stream'),
+                                             version=_required_key(obj, 'version'))
+    else:
+        return None
+
 
 def main():
     '''Main entry point'''
