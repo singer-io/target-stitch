@@ -39,7 +39,7 @@ import pkg_resources
 import backoff
 
 import singer
-
+import ciso8601
 
 
 LOGGER = singer.get_logger().getChild('target_stitch')
@@ -330,6 +330,7 @@ def serialize(messages, schema, key_names, bookmark_names, max_bytes, max_record
             }
 
             if message.time_extracted:
+                #"%04Y-%m-%dT%H:%M:%S.%fZ"
                 record_message['time_extracted'] = singer.utils.strftime(message.time_extracted)
 
             serialized_messages.append(record_message)
@@ -677,7 +678,6 @@ def _required_key(msg, k):
 
     return msg[k]
 
-
 def overloaded_parse_message(msg):
     """Parse a message string into a Message object."""
 
@@ -690,13 +690,16 @@ def overloaded_parse_message(msg):
     msg_type = _required_key(obj, 'type')
 
     if msg_type == 'RECORD':
-        # time_extracted = obj.get('time_extracted')
-        # if time_extracted:
-        #     time_extracted = dateutil.parser.parse(time_extracted)
+        time_extracted = obj.get('time_extracted')
+        if time_extracted:
+            try:
+                time_extracted = ciso8601.parse_datetime(time_extracted)
+            except:
+                time_extracted = None
         return singer.RecordMessage(stream=_required_key(obj, 'stream'),
-                             record=_required_key(obj, 'record'),
-                             version=obj.get('version'))
-                             # time_extracted=time_extracted)
+                                    record=_required_key(obj, 'record'),
+                                    version=obj.get('version'),
+                                    time_extracted=time_extracted)
 
 
     elif msg_type == 'SCHEMA':
