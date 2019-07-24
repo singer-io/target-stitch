@@ -7,12 +7,13 @@ import sys
 import datetime
 import pytz
 import jsonschema
+import simplejson
 import decimal
 import re
 
 from decimal import Decimal
 from jsonschema import ValidationError, Draft4Validator, validators, FormatChecker
-from singer import ActivateVersionMessage, RecordMessage, utils
+from singer import ActivateVersionMessage, RecordMessage, utils, parse_message
 
 
 class DummyClient(object):
@@ -209,24 +210,6 @@ class TestTargetStitch(unittest.TestCase):
         self.assertEqual(1, batches[0]['messages'][0].version)
         self.assertEqual(2, batches[1]['messages'][0].version)
 
-class TestFloatToDecimal(unittest.TestCase):
-
-    def test_scalar_float(self):
-        self.assertTrue(isinstance(target_stitch.float_to_decimal(1.2), Decimal))
-
-    def test_scalar_non_float(self):
-        self.assertTrue(isinstance(target_stitch.float_to_decimal('hi'), str))
-
-    def test_array(self):
-        result = target_stitch.float_to_decimal([1.2, 'hi'])
-        self.assertTrue(isinstance(result[0], Decimal))
-        self.assertTrue(isinstance(result[1], str))
-
-    def test_dict(self):
-        result = target_stitch.float_to_decimal({'float': 1.2, 'str': 'hi'})
-        self.assertTrue(isinstance(result['float'], Decimal))
-        self.assertTrue(isinstance(result['str'], str))
-
 class TestSerialize(unittest.TestCase):
 
     def setUp(self):
@@ -301,6 +284,38 @@ class TestSerialize(unittest.TestCase):
         actual = json.loads(batch)["messages"][0]["time_extracted"]
 
         self.assertEqual(expected, actual)
+
+
+    def create_raw_record(self, value):
+        return '{"value": ' + value + '}'
+
+    def create_raw_record_message(self,raw_record):
+        return '{"type": "RECORD", "stream": "test", "record": ' + raw_record + '}'
+
+
+    def test_deserialize_and_serialize_decimals(self):
+        decimal_strs = [
+            '-9999999999999999.9999999999999999999999',
+            '0',
+            '9999999999999999.9999999999999999999999',
+            '-7187498962233394.3739812942138415666763',
+            '9273972760690975.2044306442955715221042',
+            '29515565286974.1188802122612813004366',
+            '9176089101347578.2596296292040288441238',
+            '-8416853039392703.306423225471199148379',
+            '1285266411314091.3002668125515694162268',
+            '6051872750342125.3812886238958681227336',
+            '-1132031605459408.5571559429308939781468',
+            '-6387836755056303.0038029604189860431045',
+            '4526059300505414'
+        ]
+        for decimal_str in decimal_strs:
+            record_str = self.create_raw_record(decimal_str)
+            record_message_str = self.create_raw_record_message(record_str)
+            deserialized_record = parse_message(record_message_str).record
+            serialized_record_str = simplejson.dumps(deserialized_record)
+            self.assertEqual(record_str, serialized_record_str)
+
 
 class test_use_batch_url(unittest.TestCase):
 

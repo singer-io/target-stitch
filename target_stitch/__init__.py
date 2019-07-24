@@ -27,6 +27,7 @@ import psutil
 import requests
 from requests.exceptions import RequestException, HTTPError
 from jsonschema import ValidationError, Draft4Validator, FormatChecker
+import simplejson
 import pkg_resources
 import singer
 import backoff
@@ -92,17 +93,6 @@ class Timings:
 
 TIMINGS = Timings()
 
-
-def float_to_decimal(value):
-    '''Walk the given data structure and turn all instances of float into
-    double.'''
-    if isinstance(value, float):
-        return Decimal(str(value))
-    if isinstance(value, list):
-        return [float_to_decimal(child) for child in value]
-    if isinstance(value, dict):
-        return {k: float_to_decimal(v) for k, v in value.items()}
-    return value
 
 class BatchTooLargeException(TargetStitchException):
     '''Exception for when the records and schema are so large that we can't
@@ -244,20 +234,18 @@ class ValidatingHandler: # pylint: disable=too-few-public-methods
     '''Validates input messages against their schema.'''
 
     def __init__(self):
-        getcontext().prec = 10000
+        getcontext().prec = 76
 
     def handle_batch(self, messages, schema, key_names, bookmark_names=None): # pylint: disable=no-self-use,unused-argument
         '''Handles messages by validating them against schema.'''
-        schema = float_to_decimal(schema)
         validator = Draft4Validator(schema, format_checker=FormatChecker())
         for i, message in enumerate(messages):
             if isinstance(message, singer.RecordMessage):
-                data = float_to_decimal(message.record)
                 try:
-                    validator.validate(data)
+                    validator.validate(message.record)
                     if key_names:
                         for k in key_names:
-                            if k not in data:
+                            if k not in message.record:
                                 raise TargetStitchException(
                                     'Message {} is missing key property {}'.format(
                                         i, k))
@@ -329,7 +317,7 @@ def serialize(messages, schema, key_names, bookmark_names, max_bytes, max_record
     # This will affect very few data points and we have chosen to leave
     # conversion as is for now.
 
-    serialized = json.dumps(body)
+    serialized = simplejson.dumps(body)
     LOGGER.debug('Serialized %d messages into %d bytes', len(messages), len(serialized))
 
     if len(serialized) < max_bytes:
