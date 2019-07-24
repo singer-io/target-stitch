@@ -12,7 +12,7 @@ import re
 
 from decimal import Decimal
 from jsonschema import ValidationError, Draft4Validator, validators, FormatChecker
-from singer import ActivateVersionMessage, RecordMessage, utils
+from singer import ActivateVersionMessage, RecordMessage, utils, parse_message
 
 
 class DummyClient(object):
@@ -311,7 +311,7 @@ class TestSerialize(unittest.TestCase):
         for decimal_str in decimal_strs:
             record_str = self.create_raw_record(decimal_str)
             record_message_str = self.create_raw_record_message(record_str)
-            deserialized_record = singer.parse_message(record_message_str).record
+            deserialized_record = parse_message(record_message_str).record
             serialized_record_str = simplejson.dumps(deserialized_record)
             self.assertEqual(record_str, serialized_record_str)
 
