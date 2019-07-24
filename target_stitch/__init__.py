@@ -27,6 +27,7 @@ import psutil
 import requests
 from requests.exceptions import RequestException, HTTPError
 from jsonschema import ValidationError, Draft4Validator, FormatChecker
+import simplejson
 import pkg_resources
 import singer
 import backoff
@@ -329,7 +330,7 @@ def serialize(messages, schema, key_names, bookmark_names, max_bytes, max_record
     # This will affect very few data points and we have chosen to leave
     # conversion as is for now.
 
-    serialized = json.dumps(body)
+    serialized = simplejson.dumps(body)
     LOGGER.debug('Serialized %d messages into %d bytes', len(messages), len(serialized))
 
     if len(serialized) < max_bytes:
