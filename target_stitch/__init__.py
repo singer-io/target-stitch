@@ -389,7 +389,7 @@ class TargetStitch:
             self.buffer_size_bytes = 0
 
         if self.state:
-            line = json.dumps(self.state)
+            line = simplejson.dumps(self.state)
             self.state_writer.write("{}\n".format(line))
             self.state_writer.flush()
             self.state = None
