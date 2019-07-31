@@ -316,6 +316,31 @@ class TestSerialize(unittest.TestCase):
             serialized_record_str = simplejson.dumps(deserialized_record)
             self.assertEqual(record_str, serialized_record_str)
 
+    def test_state_deserialize_and_serialize_decimals(self):
+        bookmarks = [
+            '-9999999999999999.9999999999999999999999',
+            '-7187498962233394.3739812942138415666763',
+            '9273972760690975.2044306442955715221042',
+            '29515565286974.1188802122612813004366',
+            '9176089101347578.2596296292040288441238',
+            '-8416853039392703.306423225471199148379',
+            '1285266411314091.3002668125515694162268',
+            '6051872750342125.3812886238958681227336',
+            '-1132031605459408.5571559429308939781468',
+            '-6387836755056303.0038029604189860431045',
+            '4526059300505414'
+        ]
+
+        string_writer = io.StringIO()
+        target = target_stitch.TargetStitch(
+            [DummyClient()], string_writer, 4000000, 20000, 100000)
+
+        for bk in bookmarks:
+            deserialized_state_value = '{"decimal_bookmark": ' + bk + '}'
+            deserialized_state = '{"type": "STATE", "value": ' + deserialized_state_value + '}'
+            target.handle_line(deserialized_state)
+            target.flush()
+            self.assertEqual(deserialized_state_value, string_writer.getvalue().split('\n')[-2])
 
 class test_use_batch_url(unittest.TestCase):
 
