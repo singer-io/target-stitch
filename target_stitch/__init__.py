@@ -51,12 +51,12 @@ DEFAULT_STITCH_URL = 'https://api.stitchdata.com/v2/import/batch'
 DEFAULT_MAX_BATCH_BYTES = 4000000
 DEFAULT_MAX_BATCH_RECORDS = 20000
 SEQUENCE_MULTIPLIER = 1000
-
 ourSession = None
+
 def start_loop(loop):
     asyncio.set_event_loop(loop)
     global ourSession
-    timeout = aiohttp.ClientTimeout(total=60)
+    timeout = aiohttp.ClientTimeout(sock_connect=60, sock_read=60)
     ourSession = aiohttp.ClientSession(connector=aiohttp.TCPConnector(), timeout=timeout)
     loop.run_forever()
 
@@ -143,17 +143,17 @@ def _log_backoff(details):
 class StitchHandler: # pylint: disable=too-few-public-methods
     '''Sends messages to Stitch.'''
 
-    def __init__(self, token, stitch_url, max_batch_bytes, max_batch_records):
+    def __init__(self, token, stitch_url, max_batch_bytes, max_batch_records, turbo_boost_factor):
         self.token = token
         self.stitch_url = stitch_url
         self.max_batch_bytes = max_batch_bytes
         self.max_batch_records = max_batch_records
-
+        self.turbo_boost_factor =  turbo_boost_factor
 
     @staticmethod
     #this happens in the event loop
     def flush_states(state_writer, future):
-        # LOGGER.info('FLUSH states..................')
+        #LOGGER.info('FLUSH states..................')
         global pendingRequests
         global sendException
 
@@ -200,8 +200,8 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         global sendException
 
         check_send_exception()
-
         LOGGER.info("checking sendException: %s", sendException)
+
         url = self.stitch_url
         headers = self.headers()
         verify_ssl = True
@@ -212,7 +212,12 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         future = asyncio.run_coroutine_threadsafe(post_coroutine(url, headers, data, verify_ssl), new_loop)
         next_pending_request = (future, state)
         pendingRequests.append(next_pending_request)
+
         future.add_done_callback(functools.partial(self.flush_states, state_writer))
+        if len(pendingRequests) > self.turbo_boost_factor:
+            LOGGER.info("pendingRequest(%s) > turbo_boost_factor(%s) waiting...", len(pendingRequests), self.turbo_boost_factor)
+            pendingRequests[0][0].result() #finish the first future
+
 
     def handle_batch(self, messages, schema, key_names, bookmark_names=None, state_writer=None, state=None):
         '''Handle messages by sending them to Stitch.
@@ -529,6 +534,12 @@ def use_batch_url(url):
     LOGGER.info('Using Stitch import URL %s', result)
     return result
 
+
+def get_turbo_boost_factor(config):
+    turbo_boost_factor = int(config.get('turbo_boost_factor',1))
+    LOGGER.info('Using Turbo Boost Factor of %s', turbo_boost_factor)
+    return turbo_boost_factor
+
 def main_impl():
     '''We wrap this function in main() to add exception handling'''
     parser = argparse.ArgumentParser()
@@ -576,7 +587,7 @@ def main_impl():
         config = json.load(args.config)
         token = config.get('token')
         stitch_url = use_batch_url(config.get('stitch_url', DEFAULT_STITCH_URL))
-
+        turbo_boost_factor = get_turbo_boost_factor(config)
         if not token:
             raise Exception('Configuration is missing required "token" field')
 
@@ -588,7 +599,8 @@ def main_impl():
         handlers.append(StitchHandler(token,
                                       stitch_url,
                                       args.max_batch_bytes,
-                                      args.max_batch_records))
+                                      args.max_batch_records,
+                                      turbo_boost_factor))
 
     # queue = Queue(args.max_batch_records)
     reader = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
