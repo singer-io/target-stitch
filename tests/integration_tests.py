@@ -50,7 +50,8 @@ class AsyncSerializeFloats(unittest.TestCase):
         handler = StitchHandler(token,
                                 DEFAULT_STITCH_URL,
                                 target_stitch.DEFAULT_MAX_BATCH_BYTES,
-                                2)
+                                2,
+                                10)
         self.out = io.StringIO()
         self.target_stitch = target_stitch.TargetStitch(
             [handler], self.out, 4000000, 2, 100000)
@@ -58,8 +59,8 @@ class AsyncSerializeFloats(unittest.TestCase):
                                   "key_properties": ["my_float"],
                                   "schema": {"type": "object",
                                              "properties": {"my_float": {"type": "number"}}}})]
-        target_stitch.sendException = None
-        target_stitch.pendingRequests = []
+        target_stitch.SEND_EXCEPTION = None
+        target_stitch.PENDING_REQUESTS = []
 
     def test_serialize_floats(self):
         floats = [
@@ -110,7 +111,8 @@ class AsyncPushToGate(unittest.TestCase):
         handler = StitchHandler(token,
                                 DEFAULT_STITCH_URL,
                                 target_stitch.DEFAULT_MAX_BATCH_BYTES,
-                                2)
+                                2,
+                                10)
         self.out = io.StringIO()
         self.target_stitch = target_stitch.TargetStitch(
             [handler], self.out, 4000000, 2, 100000)
@@ -119,8 +121,8 @@ class AsyncPushToGate(unittest.TestCase):
                                   "schema": {"type": "object",
                                              "properties": {"id": {"type": "integer"},
                                                             "name": {"type": "string"}}}})]
-        target_stitch.sendException = None
-        target_stitch.pendingRequests = []
+        target_stitch.SEND_EXCEPTION = None
+        target_stitch.PENDING_REQUESTS = []
 
     # 2 requests
     # both with state
