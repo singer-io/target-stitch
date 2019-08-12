@@ -544,7 +544,7 @@ def use_batch_url(url):
 
 
 def get_turbo_boost_factor(config):
-    turbo_boost_factor = int(config.get('turbo_boost_factor',1))
+    turbo_boost_factor = int(config.get('stitch_turbo_boost_factor',1))
     LOGGER.info('Using Turbo Boost Factor of %s', turbo_boost_factor)
     return turbo_boost_factor
 
