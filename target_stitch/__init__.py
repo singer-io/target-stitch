@@ -150,7 +150,7 @@ def _log_backoff(details):
 class StitchHandler: # pylint: disable=too-few-public-methods
     '''Sends messages to Stitch.'''
 
-    def __init__(self, token, stitch_url, max_batch_bytes, max_batch_records, turbo_boost_factor):
+    def __init__(self, token, stitch_url, max_batch_bytes, max_batch_records, turbo_boost_factor=1):
         self.token = token
         self.stitch_url = stitch_url
         self.max_batch_bytes = max_batch_bytes
