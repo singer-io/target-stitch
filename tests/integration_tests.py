@@ -126,7 +126,7 @@ class AsyncPushToGate(unittest.TestCase):
     # both with state
     # in order responses
     def test_requests_in_order(self):
-        target_stitch.ourSession = FakeSession(mock_in_order_all_200)
+        target_stitch.OUR_SESSION = FakeSession(mock_in_order_all_200)
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 1, "name": "Mike"}}))
         self.queue.append(json.dumps({"type":"STATE", "value":{"bookmarks":{"chicken_stream":{"id": 1 }}}}))
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 2, "name": "Paul"}}))
@@ -151,7 +151,7 @@ class AsyncPushToGate(unittest.TestCase):
     # last SENT request has state
     # in order
     def test_requests_in_order_first_has_no_state(self):
-        target_stitch.ourSession = FakeSession(mock_in_order_all_200)
+        target_stitch.OUR_SESSION = FakeSession(mock_in_order_all_200)
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 1, "name": "Mike"}}))
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 2, "name": "Paul"}}))
         #will flush here after 2 records
@@ -174,7 +174,7 @@ class AsyncPushToGate(unittest.TestCase):
     # in order
     # first sent request errors
     def test_requests_in_order_first_errors(self):
-        target_stitch.ourSession = FakeSession(mock_in_order_first_errors)
+        target_stitch.OUR_SESSION = FakeSession(mock_in_order_first_errors)
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 1, "name": "Mike"}}))
         self.queue.append(json.dumps({"type":"STATE", "value":{"bookmarks":{"chicken_stream":{"id": 1 }}}}))
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 2, "name": "Paul"}}))
@@ -203,7 +203,7 @@ class AsyncPushToGate(unittest.TestCase):
     # in order
     # second SENT request errors
     def test_requests_in_order_second_errors(self):
-        target_stitch.ourSession = FakeSession(mock_in_order_second_errors)
+        target_stitch.OUR_SESSION = FakeSession(mock_in_order_second_errors)
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 1, "name": "Mike"}}))
         self.queue.append(json.dumps({"type":"STATE", "value":{"bookmarks":{"chicken_stream":{"id": 1 }}}}))
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 2, "name": "Paul"}}))
@@ -233,7 +233,7 @@ class AsyncPushToGate(unittest.TestCase):
     # in order
     # both requests errors
     def test_requests_in_order_both_errors(self):
-        target_stitch.ourSession = FakeSession(mock_in_order_both_error)
+        target_stitch.OUR_SESSION = FakeSession(mock_in_order_both_error)
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 1, "name": "Mike"}}))
         self.queue.append(json.dumps({"type":"STATE", "value":{"bookmarks":{"chicken_stream":{"id": 1 }}}}))
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 2, "name": "Paul"}}))
@@ -264,7 +264,7 @@ class AsyncPushToGate(unittest.TestCase):
     # both with state.
     # out of order responses
     def test_requests_out_of_order(self):
-        target_stitch.ourSession = FakeSession(mock_out_of_order_all_200)
+        target_stitch.OUR_SESSION = FakeSession(mock_out_of_order_all_200)
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 1, "name": "Mike"}}))
         self.queue.append(json.dumps({"type":"STATE", "value":{"bookmarks":{"chicken_stream":{"id": 1 }}}}))
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 2, "name": "Paul"}}))
@@ -289,7 +289,7 @@ class AsyncPushToGate(unittest.TestCase):
     # out of order
     # first SENT request errors
     def test_requests_out_of_order_first_errors(self):
-        target_stitch.ourSession = FakeSession(mock_out_of_order_first_errors)
+        target_stitch.OUR_SESSION = FakeSession(mock_out_of_order_first_errors)
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 1, "name": "Mike"}}))
         self.queue.append(json.dumps({"type":"STATE", "value":{"bookmarks":{"chicken_stream":{"id": 1 }}}}))
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 2, "name": "Paul"}}))
@@ -334,7 +334,7 @@ class AsyncPushToGate(unittest.TestCase):
         return FakeResponse(requests_sent)
 
     def test_requests_out_of_order_second_errors(self):
-        target_stitch.ourSession = FakeSession(mock_out_of_order_second_errors)
+        target_stitch.OUR_SESSION = FakeSession(mock_out_of_order_second_errors)
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 1, "name": "Mike"}}))
         self.queue.append(json.dumps({"type":"STATE", "value":{"bookmarks":{"chicken_stream":{"id": 1 }}}}))
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 2, "name": "Paul"}}))
@@ -364,7 +364,7 @@ class AsyncPushToGate(unittest.TestCase):
     # out of order
     # both requests errors
     def test_requests_out_of_order_both_errors(self):
-        target_stitch.ourSession = FakeSession(mock_out_of_order_both_error)
+        target_stitch.OUR_SESSION = FakeSession(mock_out_of_order_both_error)
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 1, "name": "Mike"}}))
         self.queue.append(json.dumps({"type":"STATE", "value":{"bookmarks":{"chicken_stream":{"id": 1 }}}}))
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 2, "name": "Paul"}}))
