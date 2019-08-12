@@ -11,6 +11,7 @@ import gzip
 import http.client
 import io
 import json
+import simplejson
 import os
 import re
 import sys
@@ -184,7 +185,7 @@ class StitchHandler: # pylint: disable=too-few-public-methods
                 completed_count = completed_count + 1
                 if s:
                     # LOGGER.info("FLUSH DONE: %s FLUSHING STATE: %s", pformat(f), pformat(s))
-                    line = json.dumps(s)
+                    line = simplejson.dumps(s)
                     state_writer.write("{}\n".format(line))
                     state_writer.flush()
             else:
@@ -446,7 +447,7 @@ class TargetStitch:
             self.buffer_size_bytes = 0
 
         # if self.state:
-        #     line = json.dumps(self.state)
+        #     line = simplejson.dumps(self.state)
         #     self.state_writer.write("{}\n".format(line))
         #     self.state_writer.flush()
         #     self.state = None
@@ -478,6 +479,7 @@ class TargetStitch:
                     message.stream != self.messages[0].stream or
                     message.version != self.messages[0].version):
                 self.flush()
+
             self.messages.append(message)
             self.buffer_size_bytes += len(line)
 
@@ -706,7 +708,7 @@ def overloaded_parse_message(msg):
     # lossy conversions.  However, this will affect
     # very few data points and we have chosen to
     # leave conversion as is for now.
-    obj = json.loads(msg)
+    obj = simplejson.loads(msg, use_decimal=True)
     msg_type = _required_key(obj, 'type')
 
     if msg_type == 'RECORD':
