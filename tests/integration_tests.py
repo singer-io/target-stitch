@@ -17,6 +17,9 @@ from nose.tools import nottest
 
 LOGGER = singer.get_logger().getChild('target_stitch')
 
+def fake_check_send_exception():
+    return None
+
 def load_sample_lines(filename):
     with open('tests/' + filename) as fp:
         return [line for line in fp]
@@ -61,6 +64,12 @@ class AsyncSerializeFloats(unittest.TestCase):
                                              "properties": {"my_float": {"type": "number"}}}})]
         target_stitch.SEND_EXCEPTION = None
         target_stitch.PENDING_REQUESTS = []
+
+        LOGGER.info("cleaning SEND_EXCEPTIONS: %s AND PENDING_REQUESTS: %s",
+                    target_stitch.SEND_EXCEPTION,
+                    target_stitch.PENDING_REQUESTS)
+
+
 
     def test_serialize_floats(self):
         floats = [
@@ -113,6 +122,7 @@ class AsyncPushToGate(unittest.TestCase):
                                 target_stitch.DEFAULT_MAX_BATCH_BYTES,
                                 2,
                                 10)
+        self.og_check_send_exception = target_stitch.check_send_exception
         self.out = io.StringIO()
         self.target_stitch = target_stitch.TargetStitch(
             [handler], self.out, 4000000, 2, 100000)
@@ -121,8 +131,18 @@ class AsyncPushToGate(unittest.TestCase):
                                   "schema": {"type": "object",
                                              "properties": {"id": {"type": "integer"},
                                                             "name": {"type": "string"}}}})]
+
         target_stitch.SEND_EXCEPTION = None
+        for f,s in target_stitch.PENDING_REQUESTS:
+            try:
+                f.cancel()
+            except:
+                pass
+
         target_stitch.PENDING_REQUESTS = []
+        LOGGER.info("cleaning SEND_EXCEPTIONS: %s AND PENDING_REQUESTS: %s",
+                    target_stitch.SEND_EXCEPTION,
+                    target_stitch.PENDING_REQUESTS)
 
     # 2 requests
     # both with state
@@ -187,7 +207,11 @@ class AsyncPushToGate(unittest.TestCase):
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 4, "name": "Cathy"}}))
         #will flush here after 2 records
 
+        #consume() can encounter an exception via check_send_exception in send()
+        #if SEND_EXCEPTION has already been set by the coroutine it can blow up.
+        target_stitch.check_send_exception = fake_check_send_exception
         self.target_stitch.consume(self.queue)
+        target_stitch.check_send_exception = self.og_check_send_exception
         our_exception = None
         try:
             finish_requests()
@@ -216,13 +240,20 @@ class AsyncPushToGate(unittest.TestCase):
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 4, "name": "Cathy"}}))
         #will flush here after 2 records
 
+        #consume() can encounter an exception via check_send_exception in send()
+        #if SEND_EXCEPTION has already been set by the coroutine it can blow up.
+        target_stitch.check_send_exception = fake_check_send_exception
         self.target_stitch.consume(self.queue)
+        target_stitch.check_send_exception = self.og_check_send_exception
+
         our_exception = None
         try:
             finish_requests()
         except Exception as ex:
             our_exception = ex
 
+        # import pdb
+        # pdb.set_trace()
         self.assertIsNotNone(our_exception)
         self.assertTrue(isinstance(our_exception, TargetStitchException))
 
@@ -246,7 +277,11 @@ class AsyncPushToGate(unittest.TestCase):
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 4, "name": "Cathy"}}))
         #will flush here after 2 records
 
+        #consume() can encounter an exception via check_send_exception in send()
+        #if SEND_EXCEPTION has already been set by the coroutine it can blow up.
+        target_stitch.check_send_exception = fake_check_send_exception
         self.target_stitch.consume(self.queue)
+        target_stitch.check_send_exception = self.og_check_send_exception
         our_exception = None
         try:
             finish_requests()
@@ -302,7 +337,11 @@ class AsyncPushToGate(unittest.TestCase):
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 4, "name": "Cathy"}}))
         #will flush here after 2 records
 
+        #consume() can encounter an exception via check_send_exception in send()
+        #if SEND_EXCEPTION has already been set by the coroutine it can blow up.
+        target_stitch.check_send_exception = fake_check_send_exception
         self.target_stitch.consume(self.queue)
+        target_stitch.check_send_exception = self.og_check_send_exception
         our_exception = None
         try:
             finish_requests()
@@ -347,7 +386,11 @@ class AsyncPushToGate(unittest.TestCase):
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 4, "name": "Cathy"}}))
         #will flush here after 2 records
 
+        #consume() can encounter an exception via check_send_exception in send()
+        #if SEND_EXCEPTION has already been set by the coroutine it can blow up.
+        target_stitch.check_send_exception = fake_check_send_exception
         self.target_stitch.consume(self.queue)
+        target_stitch.check_send_exception = self.og_check_send_exception
         our_exception = None
         try:
             finish_requests()
@@ -377,7 +420,11 @@ class AsyncPushToGate(unittest.TestCase):
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 4, "name": "Cathy"}}))
         #will flush here after 2 records
 
+        #consume() can encounter an exception via check_send_exception in send()
+        #if SEND_EXCEPTION has already been set by the coroutine it can blow up.
+        target_stitch.check_send_exception = fake_check_send_exception
         self.target_stitch.consume(self.queue)
+        target_stitch.check_send_exception = self.og_check_send_exception
         our_exception = None
         try:
             finish_requests()
@@ -394,4 +441,4 @@ class AsyncPushToGate(unittest.TestCase):
 if __name__== "__main__":
     test1 = AsyncPushToGate()
     test1.setUp()
-    test1.test_requests_in_order_both_errors()
+    test1.test_requests_in_order_first_errors()
