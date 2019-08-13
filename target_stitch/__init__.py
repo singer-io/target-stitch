@@ -11,7 +11,6 @@ import gzip
 import http.client
 import io
 import json
-import simplejson
 import os
 import re
 import sys
@@ -38,6 +37,7 @@ import backoff
 
 import singer
 import ciso8601
+import simplejson
 
 
 LOGGER = singer.get_logger().getChild('target_stitch')
@@ -156,7 +156,7 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         self.stitch_url = stitch_url
         self.max_batch_bytes = max_batch_bytes
         self.max_batch_records = max_batch_records
-        self.turbo_boost_factor =  turbo_boost_factor
+        self.turbo_boost_factor = turbo_boost_factor
 
     @staticmethod
     #this happens in the event loop
@@ -546,7 +546,7 @@ def use_batch_url(url):
 
 
 def get_turbo_boost_factor(config):
-    turbo_boost_factor = int(config.get('stitch_turbo_boost_factor',1))
+    turbo_boost_factor = int(config.get('stitch_turbo_boost_factor', 1))
     LOGGER.info('Using Turbo Boost Factor of %s', turbo_boost_factor)
     return turbo_boost_factor
 
@@ -716,19 +716,18 @@ def overloaded_parse_message(msg):
         if time_extracted:
             try:
                 time_extracted = ciso8601.parse_datetime(time_extracted)
-            except:
+            except Exception:
                 time_extracted = None
         return singer.RecordMessage(stream=_required_key(obj, 'stream'),
                                     record=_required_key(obj, 'record'),
                                     version=obj.get('version'),
                                     time_extracted=time_extracted)
 
-
     elif msg_type == 'SCHEMA':
         return singer.SchemaMessage(stream=_required_key(obj, 'stream'),
-                             schema=_required_key(obj, 'schema'),
-                             key_properties=_required_key(obj, 'key_properties'),
-                             bookmark_properties=obj.get('bookmark_properties'))
+                                    schema=_required_key(obj, 'schema'),
+                                    key_properties=_required_key(obj, 'key_properties'),
+                                    bookmark_properties=obj.get('bookmark_properties'))
 
     elif msg_type == 'STATE':
         return singer.StateMessage(value=_required_key(obj, 'value'))
@@ -736,8 +735,7 @@ def overloaded_parse_message(msg):
     elif msg_type == 'ACTIVATE_VERSION':
         return singer.ActivateVersionMessage(stream=_required_key(obj, 'stream'),
                                              version=_required_key(obj, 'version'))
-    else:
-        return None
+    return None
 
 
 def main():
