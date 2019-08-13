@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# pylint: disable=too-many-arguments,invalid-name,too-many-nested-blocks,line-too-long,missing-docstring,global-statement
+# pylint: disable=too-many-arguments,invalid-name,too-many-nested-blocks,line-too-long,missing-docstring,global-statement, broad-except
 
 '''
 Target for Stitch API.
