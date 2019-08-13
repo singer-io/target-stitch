@@ -20,4 +20,4 @@ jobs:
             # Need to re-activate the virtualenv
             source ~/.virtualenvs/target-stitch/bin/activate
             nosetests
-            pylint target_stitch
+            pylint target_stitch "--extension-pkg-whitelist=ciso8601"

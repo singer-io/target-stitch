@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 from decimal import Decimal, getcontext
 import asyncio
 import concurrent
+import simplejson
 import psutil
 
 import aiohttp
@@ -37,8 +38,6 @@ import backoff
 
 import singer
 import ciso8601
-import simplejson
-
 
 LOGGER = singer.get_logger().getChild('target_stitch')
 
@@ -723,16 +722,16 @@ def overloaded_parse_message(msg):
                                     version=obj.get('version'),
                                     time_extracted=time_extracted)
 
-    elif msg_type == 'SCHEMA':
+    if msg_type == 'SCHEMA':
         return singer.SchemaMessage(stream=_required_key(obj, 'stream'),
                                     schema=_required_key(obj, 'schema'),
                                     key_properties=_required_key(obj, 'key_properties'),
                                     bookmark_properties=obj.get('bookmark_properties'))
 
-    elif msg_type == 'STATE':
+    if msg_type == 'STATE':
         return singer.StateMessage(value=_required_key(obj, 'value'))
 
-    elif msg_type == 'ACTIVATE_VERSION':
+    if msg_type == 'ACTIVATE_VERSION':
         return singer.ActivateVersionMessage(stream=_required_key(obj, 'stream'),
                                              version=_required_key(obj, 'version'))
     return None
