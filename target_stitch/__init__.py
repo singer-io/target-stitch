@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# pylint: disable=too-many-arguments,invalid-name,too-many-nested-blocks
+# pylint: disable=too-many-arguments,invalid-name,too-many-nested-blocks,line-too-long,missing-docstring,global-statement, broad-except
 
 '''
 Target for Stitch API.
@@ -16,21 +16,27 @@ import re
 import sys
 import time
 import urllib
+import functools
 
 from threading import Thread
 from contextlib import contextmanager
 from collections import namedtuple
 from datetime import datetime, timezone
 from decimal import Decimal, getcontext
+import asyncio
+import concurrent
+import simplejson
 import psutil
 
-import requests
-from requests.exceptions import RequestException, HTTPError
+import aiohttp
+from aiohttp.client_exceptions import ClientConnectorError, ClientResponseError
+
 from jsonschema import ValidationError, Draft4Validator, FormatChecker
-import simplejson
 import pkg_resources
-import singer
 import backoff
+
+import singer
+import ciso8601
 
 LOGGER = singer.get_logger().getChild('target_stitch')
 
@@ -42,9 +48,44 @@ DEFAULT_MAX_BATCH_BYTES = 4000000
 DEFAULT_MAX_BATCH_RECORDS = 20000
 SEQUENCE_MULTIPLIER = 1000
 
+# This is our singleton aiohttp session
+OUR_SESSION = None
+
+# This datastructure contains our pending aiohttp requests.
+# The main thread will read from it.
+# The event loop thread will write to it by appending new requests to it and removing completed requests.
+PENDING_REQUESTS = []
+
+# This variable holds any exceptions we have encountered sending data to the gate.
+# The main thread will read from it and terminate the target if an exception is present.
+# The event loop thread will write to it after each aiohttp request completes
+SEND_EXCEPTION = None
+
+def start_loop(loop):
+    asyncio.set_event_loop(loop)
+    global OUR_SESSION
+    timeout = aiohttp.ClientTimeout(sock_connect=60, sock_read=60)
+    OUR_SESSION = aiohttp.ClientSession(connector=aiohttp.TCPConnector(), timeout=timeout)
+    loop.run_forever()
+
+new_loop = asyncio.new_event_loop()
+# new_loop.set_debug(True)
+t = Thread(target=start_loop, args=(new_loop,))
+
+#The event loop thread should not keep the process alive after the main thread terminates
+t.daemon = True
+
+t.start()
+
+
 class TargetStitchException(Exception):
     '''A known exception for which we don't need to print a stack trace'''
-    pass
+
+class StitchClientResponseError(Exception):
+    def __init__(self, status, response_body):
+        self.response_body = response_body
+        self.status = status
+        super().__init__()
 
 class MemoryReporter(Thread):
     '''Logs memory usage every 30 seconds'''
@@ -97,8 +138,6 @@ TIMINGS = Timings()
 class BatchTooLargeException(TargetStitchException):
     '''Exception for when the records and schema are so large that we can't
     create a batch with even one record.'''
-    pass
-
 
 def _log_backoff(details):
     (_, exc, _) = sys.exc_info()
@@ -110,12 +149,49 @@ def _log_backoff(details):
 class StitchHandler: # pylint: disable=too-few-public-methods
     '''Sends messages to Stitch.'''
 
-    def __init__(self, token, stitch_url, max_batch_bytes, max_batch_records):
+    def __init__(self, token, stitch_url, max_batch_bytes, max_batch_records, turbo_boost_factor=1):
         self.token = token
         self.stitch_url = stitch_url
-        self.session = requests.Session()
         self.max_batch_bytes = max_batch_bytes
         self.max_batch_records = max_batch_records
+        self.turbo_boost_factor = turbo_boost_factor
+
+    @staticmethod
+    #this happens in the event loop
+    def flush_states(state_writer, future):
+        #LOGGER.info('FLUSH states..................')
+        global PENDING_REQUESTS
+        global SEND_EXCEPTION
+
+        completed_count = 0
+        from pprint import pformat
+
+        #NB> if/when the first coroutine errors out, we will record it for examination by the main threa.
+        #if/when this happens, no further flushing of state should ever occur.  the main thread, in fact,
+        #should shutdown quickly after it spots the exception
+        if SEND_EXCEPTION is None:
+            SEND_EXCEPTION = future.exception()
+
+        if SEND_EXCEPTION is not None:
+            LOGGER.info('FLUSH early exit because of SEND_EXCEPTION: %s', pformat(SEND_EXCEPTION))
+            return
+
+        for f, s in PENDING_REQUESTS:
+            # LOGGER.info("FLUSH CHECKING: %s", pformat(f))
+            if f.done():
+                # LOGGER.info("FLUSH DONE: %s DONE", pformat(f))
+                completed_count = completed_count + 1
+                if s:
+                    # LOGGER.info("FLUSH DONE: %s FLUSHING STATE: %s", pformat(f), pformat(s))
+                    line = simplejson.dumps(s)
+                    state_writer.write("{}\n".format(line))
+                    state_writer.flush()
+            else:
+                # LOGGER.info("FLUSH NOT DONE: %s", pformat(f))
+                break
+
+        PENDING_REQUESTS = PENDING_REQUESTS[completed_count:]
+        # LOGGER.info("AFTER FLUSH %s", pformat(PENDING_REQUESTS))
 
     def headers(self):
         '''Return the headers based on the token'''
@@ -124,25 +200,33 @@ class StitchHandler: # pylint: disable=too-few-public-methods
             'Content-Type': 'application/json'
         }
 
-    @backoff.on_exception(backoff.expo,
-                          RequestException,
-                          giveup=singer.utils.exception_is_4xx,
-                          max_tries=8,
-                          on_backoff=_log_backoff)
-    def send(self, data):
+    def send(self, data, state_writer, state):
         '''Send the given data to Stitch, retrying on exceptions'''
+        global PENDING_REQUESTS
+        global SEND_EXCEPTION
+
+        check_send_exception()
+
         url = self.stitch_url
         headers = self.headers()
-        ssl_verify = True
+        verify_ssl = True
         if os.environ.get("TARGET_STITCH_SSL_VERIFY") == 'false':
-            ssl_verify = False
+            verify_ssl = False
 
-        response = self.session.post(url, headers=headers, data=data, verify=ssl_verify)
-        response.raise_for_status()
-        return response
+        #NB> this schedules the task on the event loop thread.
+        #    it will be executed at some point in the future
+        future = asyncio.run_coroutine_threadsafe(post_coroutine(url, headers, data, verify_ssl), new_loop)
+        next_pending_request = (future, state)
+        PENDING_REQUESTS.append(next_pending_request)
+
+        future.add_done_callback(functools.partial(self.flush_states, state_writer))
+        if len(PENDING_REQUESTS) >= self.turbo_boost_factor:
+            LOGGER.info("pendingRequest(%s) > turbo_boost_factor(%s) waiting...", len(PENDING_REQUESTS), self.turbo_boost_factor)
+            #wait for to finish the first future before resuming the main thread
+            PENDING_REQUESTS[0][0].result()
 
 
-    def handle_batch(self, messages, schema, key_names, bookmark_names=None):
+    def handle_batch(self, messages, schema, key_names, bookmark_names=None, state_writer=None, state=None):
         '''Handle messages by sending them to Stitch.
 
         If the serialized form of the messages is too large to fit into a
@@ -165,42 +249,11 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         for i, body in enumerate(bodies):
             with TIMINGS.mode('posting'):
                 LOGGER.debug('Request %d of %d is %d bytes', i + 1, len(bodies), len(body))
-                try:
-                    response = self.send(body)
-                    LOGGER.debug('Response is {}: {}'.format(response, response.content))
+                flushable_state = None
+                if i + 1 == len(bodies):
+                    flushable_state = state
 
-                # An HTTPError means we got an HTTP response but it was a
-                # bad status code. Try to parse the "message" from the
-                # json body of the response, since Stitch should include
-                # the human-oriented message in that field. If there are
-                # any errors parsing the message, just include the
-                # stringified response.
-                except HTTPError as exc:
-                    try:
-                        response_body = exc.response.json()
-                        if isinstance(response_body, dict) and 'message' in response_body:
-                            msg = response_body['message']
-                        elif isinstance(response_body, dict) and 'error' in response_body:
-                            msg = response_body['error']
-                        else:
-                            msg = '{}: {}'.format(exc.response, exc.response.content)
-                    except: # pylint: disable=bare-except
-                        LOGGER.exception('Exception while processing error response')
-                        msg = '{}: {}'.format(exc.response, exc.response.content)
-                    raise TargetStitchException('Error persisting data for table ' +
-                                                '"' + messages[0].stream +'": ' +
-                                                msg)
-
-                # A RequestException other than HTTPError means we
-                # couldn't even connect to stitch. The exception is likely
-                # to be very long and gross. Log the full details but just
-                # include the summary in the critical error message. TODO:
-                # When we expose logs to Stitch users, modify this to
-                # suggest looking at the logs for details.
-                except RequestException as exc:
-                    LOGGER.exception(exc)
-                    raise TargetStitchException('Error connecting to Stitch')
-
+                self.send(body, state_writer, flushable_state)
 
 class LoggingHandler:  # pylint: disable=too-few-public-methods
     '''Logs records to a local output file.'''
@@ -209,7 +262,7 @@ class LoggingHandler:  # pylint: disable=too-few-public-methods
         self.max_batch_bytes = max_batch_bytes
         self.max_batch_records = max_batch_records
 
-    def handle_batch(self, messages, schema, key_names, bookmark_names=None):
+    def handle_batch(self, messages, schema, key_names, bookmark_names=None, state_writer=None, state=None): #pylint: disable=unused-argument
         '''Handles a batch of messages by saving them to a local output file.
 
         Serializes records in the same way StitchHandler does, so the
@@ -236,7 +289,7 @@ class ValidatingHandler: # pylint: disable=too-few-public-methods
     def __init__(self):
         getcontext().prec = 76
 
-    def handle_batch(self, messages, schema, key_names, bookmark_names=None): # pylint: disable=no-self-use,unused-argument
+    def handle_batch(self, messages, schema, key_names, bookmark_names=None, state_writer=None, state=None): # pylint: disable=no-self-use,unused-argument
         '''Handles messages by validating them against schema.'''
         validator = Draft4Validator(schema, format_checker=FormatChecker())
         for i, message in enumerate(messages):
@@ -256,7 +309,7 @@ class ValidatingHandler: # pylint: disable=too-few-public-methods
         # pylint: disable=undefined-loop-variable
         # NB: This seems incorrect as there's a chance message is not defined
         LOGGER.info('%s (%s): Batch is valid',
-                    message.stream,
+                    messages[0].stream,
                     len(messages))
 
 def generate_sequence(message_num, max_records):
@@ -289,6 +342,7 @@ def serialize(messages, schema, key_names, bookmark_names, max_bytes, max_record
             }
 
             if message.time_extracted:
+                #"%04Y-%m-%dT%H:%M:%S.%fZ"
                 record_message['time_extracted'] = singer.utils.strftime(message.time_extracted)
 
             serialized_messages.append(record_message)
@@ -383,17 +437,12 @@ class TargetStitch:
                 handler.handle_batch(self.messages,
                                      stream_meta.schema,
                                      stream_meta.key_properties,
-                                     stream_meta.bookmark_properties)
+                                     stream_meta.bookmark_properties,
+                                     self.state_writer,
+                                     self.state)
             self.time_last_batch_sent = time.time()
             self.messages = []
             self.buffer_size_bytes = 0
-
-        if self.state:
-            line = simplejson.dumps(self.state)
-            self.state_writer.write("{}\n".format(line))
-            self.state_writer.flush()
-            self.state = None
-            TIMINGS.log_timings()
 
     def handle_line(self, line):
 
@@ -403,7 +452,7 @@ class TargetStitch:
 
         '''
 
-        message = singer.parse_message(line)
+        message = overloaded_parse_message(line)
 
         # If we got a Schema, set the schema and key properties for this
         # stream. Flush the batch, if there is one, in case the schema is
@@ -421,6 +470,7 @@ class TargetStitch:
                     message.stream != self.messages[0].stream or
                     message.version != self.messages[0].version):
                 self.flush()
+
             self.messages.append(message)
             self.buffer_size_bytes += len(line)
 
@@ -485,9 +535,16 @@ def use_batch_url(url):
     LOGGER.info('Using Stitch import URL %s', result)
     return result
 
+
+def get_turbo_boost_factor(config):
+    turbo_boost_factor = int(config.get('stitch_turbo_boost_factor', 1))
+    LOGGER.info('Using Turbo Boost Factor of %s', turbo_boost_factor)
+    return turbo_boost_factor
+
 def main_impl():
     '''We wrap this function in main() to add exception handling'''
     parser = argparse.ArgumentParser()
+
     parser.add_argument(
         '-c', '--config',
         help='Config file',
@@ -531,7 +588,7 @@ def main_impl():
         config = json.load(args.config)
         token = config.get('token')
         stitch_url = use_batch_url(config.get('stitch_url', DEFAULT_STITCH_URL))
-
+        turbo_boost_factor = get_turbo_boost_factor(config)
         if not token:
             raise Exception('Configuration is missing required "token" field')
 
@@ -543,7 +600,8 @@ def main_impl():
         handlers.append(StitchHandler(token,
                                       stitch_url,
                                       args.max_batch_bytes,
-                                      args.max_batch_records))
+                                      args.max_batch_records,
+                                      turbo_boost_factor))
 
     # queue = Queue(args.max_batch_records)
     reader = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
@@ -552,7 +610,124 @@ def main_impl():
                  args.max_batch_bytes,
                  args.max_batch_records,
                  args.batch_delay_seconds).consume(reader)
-    LOGGER.info("Exiting normally")
+
+
+
+    #NB> we need to wait for this to be empty indicating that all of the
+    #requests have been finished and their states flushed
+    finish_requests()
+    LOGGER.info("Requests complete, stopping loop")
+    new_loop.call_soon_threadsafe(new_loop.stop)
+
+def finish_requests():
+    global PENDING_REQUESTS
+    while True:
+        LOGGER.info("Finishing %s requests:", len(PENDING_REQUESTS))
+        check_send_exception()
+        if len(PENDING_REQUESTS) == 0: #pylint: disable=len-as-condition
+            break
+        time.sleep(1)
+
+
+def check_send_exception():
+    try:
+        global SEND_EXCEPTION
+        if SEND_EXCEPTION:
+            raise SEND_EXCEPTION
+
+    # An StitchClientResponseError means we received > 2xx response
+    # Try to parse the "message" from the
+    # json body of the response, since Stitch should include
+    # the human-oriented message in that field. If there are
+    # any errors parsing the message, just include the
+    # stringified response.
+    except StitchClientResponseError as exc:
+        try:
+            msg = "{}: {}".format(str(exc.status), exc.response_body)
+        except: # pylint: disable=bare-except
+            LOGGER.exception('Exception while processing error response')
+            msg = '{}'.format(exc)
+        raise TargetStitchException('Error persisting data to Stitch: ' +
+                                    msg)
+
+    # A ClientConnectorErrormeans we
+    # couldn't even connect to stitch. The exception is likely
+    # to be very long and gross. Log the full details but just
+    # include the summary in the critical error message.
+    except ClientConnectorError as exc:
+        LOGGER.exception(exc)
+        raise TargetStitchException('Error connecting to Stitch')
+
+    except concurrent.futures._base.TimeoutError as exc: #pylint: disable=protected-access
+        raise TargetStitchException("Timeout sending to Stitch")
+
+
+def exception_is_4xx(ex):
+    return 400 <= ex.status < 500
+
+@backoff.on_exception(backoff.expo,
+                      StitchClientResponseError,
+                      max_tries=5,
+                      giveup=exception_is_4xx,
+                      on_backoff=_log_backoff)
+async def post_coroutine(url, headers, data, verify_ssl):
+    LOGGER.info("POST starting: %s ssl(%s)", url, verify_ssl)
+    global OUR_SESSION
+    async with OUR_SESSION.post(url, headers=headers, data=data, raise_for_status=False, verify_ssl=verify_ssl) as response:
+        result_body = None
+        try:
+            result_body = await response.json()
+        except: #pylint: disable=bare-except
+            pass
+        LOGGER.info("POST response: %s %s", response.status, result_body)
+        if response.status // 100 != 2:
+            raise StitchClientResponseError(response.status, result_body)
+
+        return result_body
+
+def _required_key(msg, k):
+    if k not in msg:
+        raise Exception("Message is missing required key '{}': {}".format(k, msg))
+
+    return msg[k]
+
+def overloaded_parse_message(msg):
+    """Parse a message string into a Message object."""
+
+    # We are not using Decimals for parsing here.
+    # We recognize that exposes data to potentially
+    # lossy conversions.  However, this will affect
+    # very few data points and we have chosen to
+    # leave conversion as is for now.
+    obj = simplejson.loads(msg, use_decimal=True)
+    msg_type = _required_key(obj, 'type')
+
+    if msg_type == 'RECORD':
+        time_extracted = obj.get('time_extracted')
+        if time_extracted:
+            try:
+                time_extracted = ciso8601.parse_datetime(time_extracted)
+            except Exception:
+                time_extracted = None
+        return singer.RecordMessage(stream=_required_key(obj, 'stream'),
+                                    record=_required_key(obj, 'record'),
+                                    version=obj.get('version'),
+                                    time_extracted=time_extracted)
+
+    if msg_type == 'SCHEMA':
+        return singer.SchemaMessage(stream=_required_key(obj, 'stream'),
+                                    schema=_required_key(obj, 'schema'),
+                                    key_properties=_required_key(obj, 'key_properties'),
+                                    bookmark_properties=obj.get('bookmark_properties'))
+
+    if msg_type == 'STATE':
+        return singer.StateMessage(value=_required_key(obj, 'value'))
+
+    if msg_type == 'ACTIVATE_VERSION':
+        return singer.ActivateVersionMessage(stream=_required_key(obj, 'stream'),
+                                             version=_required_key(obj, 'version'))
+    return None
+
 
 def main():
     '''Main entry point'''

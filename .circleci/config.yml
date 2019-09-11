@@ -2,14 +2,9 @@ version: 2
 jobs:
   build:
     docker:
-      - image: ubuntu:16.04
+      - image: python:3.5.5
     steps:
       - checkout
-      - run:
-          name: 'Install python 3.5.2'
-          command: |
-            apt update
-            apt install --yes python3 python3-pip python3-venv
       - run:
           name: 'Setup virtualenv'
           command: |
@@ -18,10 +13,11 @@ jobs:
             source ~/.virtualenvs/target-stitch/bin/activate
             pip install -U pip setuptools
             pip install -e .[dev]
+            pip install -U pylint
       - run:
           name: 'Run tests'
           command: |
             # Need to re-activate the virtualenv
             source ~/.virtualenvs/target-stitch/bin/activate
-            nosetests --ignore-files=integration_tests.py
-            pylint target_stitch
+            nosetests
+            pylint target_stitch "--extension-pkg-whitelist=ciso8601"
