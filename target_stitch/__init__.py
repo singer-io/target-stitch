@@ -32,7 +32,6 @@ import aiohttp
 from aiohttp.client_exceptions import ClientConnectorError, ClientResponseError
 
 from jsonschema import ValidationError, Draft4Validator, FormatChecker
-import simplejson
 import pkg_resources
 import backoff
 
