@@ -15,7 +15,7 @@ setup(name='target-stitch',
           'requests==2.20.0',
           'singer-python==5.8.0',
           'psutil==5.3.1',
-          'simplejson==3.11.1'
+          'simplejson==3.11.1',
           'aiohttp==3.5.4',
           'cchardet==2.1.4',
           'aiodns==2.0.0',
