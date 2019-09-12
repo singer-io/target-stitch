@@ -4,7 +4,7 @@ Reads [Singer](https://singer.io) formatted data from stdin and persists it to t
 
 ## Install
 
-Requires Python 3
+Requires Python 3.5.6
 
 ```bash
 › pip install target-stitch
