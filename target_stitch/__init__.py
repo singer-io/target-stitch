@@ -674,7 +674,7 @@ def exception_is_4xx(ex):
                       giveup=exception_is_4xx,
                       on_backoff=_log_backoff)
 async def post_coroutine(url, headers, data, verify_ssl):
-    LOGGER.info("POST starting: %s ssl(%s)", url, verify_ssl)
+    # LOGGER.info("POST starting: %s ssl(%s)", url, verify_ssl)
     global OUR_SESSION
     async with OUR_SESSION.post(url, headers=headers, data=data, raise_for_status=False, verify_ssl=verify_ssl) as response:
         result_body = None
@@ -682,7 +682,7 @@ async def post_coroutine(url, headers, data, verify_ssl):
             result_body = await response.json()
         except: #pylint: disable=bare-except
             pass
-        LOGGER.info("POST response: %s %s", response.status, result_body)
+        # LOGGER.info("POST response: %s %s", response.status, result_body)
         if response.status // 100 != 2:
             raise StitchClientResponseError(response.status, result_body)
 
