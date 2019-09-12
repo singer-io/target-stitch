@@ -3,7 +3,7 @@
 from setuptools import setup
 
 setup(name='target-stitch',
-      version='2.0.2',
+      version='2.0.3',
       description='Singer.io target for the Stitch API',
       author='Stitch',
       url='https://singer.io',
