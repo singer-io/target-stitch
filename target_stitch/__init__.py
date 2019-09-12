@@ -624,7 +624,7 @@ def main_impl():
 def finish_requests(max_count=0):
     global PENDING_REQUESTS
     while True:
-        LOGGER.info("Finishing %s requests:", len(PENDING_REQUESTS))
+        # LOGGER.info("Finishing %s requests:", len(PENDING_REQUESTS))
         check_send_exception()
         if len(PENDING_REQUESTS) <= max_count: #pylint: disable=len-as-condition
             break
