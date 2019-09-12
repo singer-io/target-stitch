@@ -159,7 +159,7 @@ class StitchHandler: # pylint: disable=too-few-public-methods
     @staticmethod
     #this happens in the event loop
     def flush_states(state_writer, future):
-        #LOGGER.info('FLUSH states..................')
+
         global PENDING_REQUESTS
         global SEND_EXCEPTION
 
@@ -177,21 +177,17 @@ class StitchHandler: # pylint: disable=too-few-public-methods
             return
 
         for f, s in PENDING_REQUESTS:
-            # LOGGER.info("FLUSH CHECKING: %s", pformat(f))
             if f.done():
-                # LOGGER.info("FLUSH DONE: %s DONE", pformat(f))
                 completed_count = completed_count + 1
                 if s:
-                    # LOGGER.info("FLUSH DONE: %s FLUSHING STATE: %s", pformat(f), pformat(s))
                     line = simplejson.dumps(s)
                     state_writer.write("{}\n".format(line))
                     state_writer.flush()
             else:
-                # LOGGER.info("FLUSH NOT DONE: %s", pformat(f))
                 break
 
         PENDING_REQUESTS = PENDING_REQUESTS[completed_count:]
-        # LOGGER.info("AFTER FLUSH %s", pformat(PENDING_REQUESTS))
+
 
     def headers(self):
         '''Return the headers based on the token'''
@@ -213,17 +209,23 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         if os.environ.get("TARGET_STITCH_SSL_VERIFY") == 'false':
             verify_ssl = False
 
+
+        if len(PENDING_REQUESTS) >= self.turbo_boost_factor:
+            LOGGER.info("pendingRequest(%s) >= turbo_boost_factor(%s) waiting...", len(PENDING_REQUESTS), self.turbo_boost_factor)
+
+            #wait for to finish the first future before resuming the main thread
+            finish_requests(self.turbo_boost_factor - 1)
+
+
+
         #NB> this schedules the task on the event loop thread.
         #    it will be executed at some point in the future
         future = asyncio.run_coroutine_threadsafe(post_coroutine(url, headers, data, verify_ssl), new_loop)
         next_pending_request = (future, state)
         PENDING_REQUESTS.append(next_pending_request)
 
+
         future.add_done_callback(functools.partial(self.flush_states, state_writer))
-        if len(PENDING_REQUESTS) >= self.turbo_boost_factor:
-            LOGGER.info("pendingRequest(%s) > turbo_boost_factor(%s) waiting...", len(PENDING_REQUESTS), self.turbo_boost_factor)
-            #wait for to finish the first future before resuming the main thread
-            PENDING_REQUESTS[0][0].result()
 
 
     def handle_batch(self, messages, schema, key_names, bookmark_names=None, state_writer=None, state=None):
@@ -619,14 +621,15 @@ def main_impl():
     LOGGER.info("Requests complete, stopping loop")
     new_loop.call_soon_threadsafe(new_loop.stop)
 
-def finish_requests():
+def finish_requests(max_count=0):
     global PENDING_REQUESTS
     while True:
         LOGGER.info("Finishing %s requests:", len(PENDING_REQUESTS))
         check_send_exception()
-        if len(PENDING_REQUESTS) == 0: #pylint: disable=len-as-condition
+        if len(PENDING_REQUESTS) <= max_count: #pylint: disable=len-as-condition
             break
-        time.sleep(1)
+        time.sleep(1 / 1000.0)
+
 
 
 def check_send_exception():
