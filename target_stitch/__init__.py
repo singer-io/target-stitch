@@ -211,7 +211,7 @@ class StitchHandler: # pylint: disable=too-few-public-methods
 
 
         if len(PENDING_REQUESTS) >= self.turbo_boost_factor:
-            LOGGER.info("pendingRequest(%s) >= turbo_boost_factor(%s) waiting...", len(PENDING_REQUESTS), self.turbo_boost_factor)
+            #LOGGER.info("pendingRequest(%s) >= turbo_boost_factor(%s) waiting...", len(PENDING_REQUESTS), self.turbo_boost_factor)
 
             #wait for to finish the first future before resuming the main thread
             finish_requests(self.turbo_boost_factor - 1)
