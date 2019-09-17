@@ -284,6 +284,11 @@ class LoggingHandler:  # pylint: disable=too-few-public-methods
             self.output_file.write(body)
             self.output_file.write('\n')
 
+        if state:
+            line = simplejson.dumps(state)
+            state_writer.write("{}\n".format(line))
+            state_writer.flush()
+
 
 class ValidatingHandler: # pylint: disable=too-few-public-methods
     '''Validates input messages against their schema.'''
@@ -313,6 +318,11 @@ class ValidatingHandler: # pylint: disable=too-few-public-methods
         LOGGER.info('%s (%s): Batch is valid',
                     messages[0].stream,
                     len(messages))
+        if state:
+            line = simplejson.dumps(state)
+            state_writer.write("{}\n".format(line))
+            state_writer.flush()
+
 
 def generate_sequence(message_num, max_records):
     '''Generates a unique sequence number based on the current time millis
