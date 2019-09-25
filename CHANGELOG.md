@@ -1,5 +1,8 @@
 # Changelog
 
+## 2.0.5
+  * Emits final state after all records have been pushed to Stitch, before exit [#71](https://github.com/singer-io/target-stitch/pull/71)
+
 ## 1.8.1
   * Updates `requests` to version `2.20.0` in response to CVE 2018-18074
 
