@@ -456,6 +456,13 @@ class TargetStitch:
             self.messages = []
             self.buffer_size_bytes = 0
 
+        if self.state:
+            line = simplejson.dumps(self.state)
+            self.state_writer.write("{}\n".format(line))
+            self.state_writer.flush()
+            self.state = None
+            TIMINGS.log_timings()
+
     def handle_line(self, line):
 
         '''Takes a raw line from stdin and handles it, updating state and possibly
