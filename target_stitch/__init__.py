@@ -627,8 +627,8 @@ def main_impl():
     if target_stitch.state:
         LOGGER.info("Writing final state.")
         line = simplejson.dumps(target_stitch.state)
-        state_writer.write("{}\n".format(line))
-        state_writer.flush()
+        target_stitch.state_writer.write("{}\n".format(line))
+        target_stitch.state_writer.flush()
 
 
 def finish_requests(max_count=0):
