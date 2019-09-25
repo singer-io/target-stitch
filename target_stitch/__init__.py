@@ -284,11 +284,6 @@ class LoggingHandler:  # pylint: disable=too-few-public-methods
             self.output_file.write(body)
             self.output_file.write('\n')
 
-        if state:
-            line = simplejson.dumps(state)
-            state_writer.write("{}\n".format(line))
-            state_writer.flush()
-
 
 class ValidatingHandler: # pylint: disable=too-few-public-methods
     '''Validates input messages against their schema.'''
@@ -318,10 +313,6 @@ class ValidatingHandler: # pylint: disable=too-few-public-methods
         LOGGER.info('%s (%s): Batch is valid',
                     messages[0].stream,
                     len(messages))
-        if state:
-            line = simplejson.dumps(state)
-            state_writer.write("{}\n".format(line))
-            state_writer.flush()
 
 
 def generate_sequence(message_num, max_records):
@@ -617,11 +608,12 @@ def main_impl():
 
     # queue = Queue(args.max_batch_records)
     reader = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
-    TargetStitch(handlers,
-                 sys.stdout,
-                 args.max_batch_bytes,
-                 args.max_batch_records,
-                 args.batch_delay_seconds).consume(reader)
+    target_stitch = TargetStitch(handlers,
+                                 sys.stdout,
+                                 args.max_batch_bytes,
+                                 args.max_batch_records,
+                                 args.batch_delay_seconds)
+    target_stitch.consume(reader)
 
 
 
@@ -630,6 +622,14 @@ def main_impl():
     finish_requests()
     LOGGER.info("Requests complete, stopping loop")
     new_loop.call_soon_threadsafe(new_loop.stop)
+
+    # Write final state once all futures have resolved
+    if target_stitch.state:
+        LOGGER.info("Writing final state.")
+        line = simplejson.dumps(target_stitch.state)
+        target_stitch.state_writer.write("{}\n".format(line))
+        target_stitch.state_writer.flush()
+
 
 def finish_requests(max_count=0):
     global PENDING_REQUESTS
