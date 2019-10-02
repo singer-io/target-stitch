@@ -228,6 +228,20 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         future.add_done_callback(functools.partial(self.flush_states, state_writer))
 
 
+
+    def handle_state(self, state_writer=None, state=None):
+        # FIXME: Add Protection code.
+        # Does the thing?
+        async def fake_future_fn():
+            pass
+
+        future = asyncio.run_coroutine_threadsafe(fake_future_fn(), new_loop)
+        next_pending_request = (future, state)
+        PENDING_REQUESTS.append(next_pending_request)
+
+        future.add_done_callback(functools.partial(self.flush_states, state_writer))
+
+
     def handle_batch(self, messages, schema, key_names, bookmark_names=None, state_writer=None, state=None):
         '''Handle messages by sending them to Stitch.
 
@@ -264,6 +278,13 @@ class LoggingHandler:  # pylint: disable=too-few-public-methods
         self.max_batch_bytes = max_batch_bytes
         self.max_batch_records = max_batch_records
 
+    def handle_state(self, state_writer=None, state=None):
+        LOGGER.info("LoggingHandler handle_state: %s", state)
+        line = simplejson.dumps(state)
+        state_writer.write("{}\n".format(line))
+        state_writer.flush()
+
+
     def handle_batch(self, messages, schema, key_names, bookmark_names=None, state_writer=None, state=None): #pylint: disable=unused-argument
         '''Handles a batch of messages by saving them to a local output file.
 
@@ -272,6 +293,7 @@ class LoggingHandler:  # pylint: disable=too-few-public-methods
         send to Stitch.
 
         '''
+        LOGGER.info("LoggingHandler handle_batch")
         LOGGER.info("Saving batch with %d messages for table %s to %s",
                     len(messages), messages[0].stream, self.output_file.name)
         for i, body in enumerate(serialize(messages,
@@ -284,6 +306,13 @@ class LoggingHandler:  # pylint: disable=too-few-public-methods
             self.output_file.write(body)
             self.output_file.write('\n')
 
+        # bug 3b: A LoggingHandler should emit states after a valid batch is written
+        if state:
+            line = simplejson.dumps(state)
+            state_writer.write("{}\n".format(line))
+            state_writer.flush()
+
+
 
 class ValidatingHandler: # pylint: disable=too-few-public-methods
     '''Validates input messages against their schema.'''
@@ -291,8 +320,17 @@ class ValidatingHandler: # pylint: disable=too-few-public-methods
     def __init__(self):
         getcontext().prec = 76
 
+    # ValidatingHandler does not care for state messages
+    def handle_state(self, state_writer=None, state=None):
+        LOGGER.info("ValidatingHandler handle_state")
+        line = simplejson.dumps(state)
+        state_writer.write("{}\n".format(line))
+        state_writer.flush()
+
+
     def handle_batch(self, messages, schema, key_names, bookmark_names=None, state_writer=None, state=None): # pylint: disable=no-self-use,unused-argument
         '''Handles messages by validating them against schema.'''
+        LOGGER.info("ValidatingHandler handle_batch")
         validator = Draft4Validator(schema, format_checker=FormatChecker())
         for i, message in enumerate(messages):
             if isinstance(message, singer.RecordMessage):
@@ -313,6 +351,12 @@ class ValidatingHandler: # pylint: disable=too-few-public-methods
         LOGGER.info('%s (%s): Batch is valid',
                     messages[0].stream,
                     len(messages))
+
+        # bug 3a: A ValidatingHandler should emit states after a valid batch is written
+        if state:
+            line = simplejson.dumps(state)
+            state_writer.write("{}\n".format(line))
+            state_writer.flush()
 
 
 def generate_sequence(message_num, max_records):
@@ -445,7 +489,18 @@ class TargetStitch:
                                      self.state)
             self.time_last_batch_sent = time.time()
             self.messages = []
+            # Why is state not set to None here?
             self.buffer_size_bytes = 0
+
+        # bug 2
+        # we only want this to happen where are NO messages - otherwise state is handled above
+        elif self.state:
+            for handler in self.handlers:
+                handler.handle_state(self.state_writer,
+                                     self.state)
+            self.state = None
+            TIMINGS.log_timings()
+
 
     def handle_line(self, line):
 
@@ -496,9 +551,11 @@ class TargetStitch:
             # num_bytes for the batch
             num_seconds = time.time() - self.time_last_batch_sent
             if num_seconds >= self.batch_delay_seconds:
-                LOGGER.debug('Flushing %d bytes, %d messages, after %.2f seconds',
+                LOGGER.info('Flushing %d bytes, %d messages, after %.2f seconds',
                              self.buffer_size_bytes, len(self.messages), num_seconds)
                 self.flush()
+                # bug 1: longstanding bug that once triggered this was never reset?
+                self.time_last_batch_sent = time.time()
 
 
 
@@ -570,7 +627,7 @@ def main_impl():
         action='store_true')
     parser.add_argument('--max-batch-records', type=int, default=DEFAULT_MAX_BATCH_RECORDS)
     parser.add_argument('--max-batch-bytes', type=int, default=DEFAULT_MAX_BATCH_BYTES)
-    parser.add_argument('--batch-delay-seconds', type=float, default=300.0)
+    parser.add_argument('--batch-delay-seconds', type=float, default=30.0)
     args = parser.parse_args()
 
     if args.verbose:
