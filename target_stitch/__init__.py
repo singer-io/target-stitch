@@ -228,18 +228,11 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         future.add_done_callback(functools.partial(self.flush_states, state_writer))
 
 
-
-    def handle_state(self, state_writer=None, state=None):
-        # FIXME: Add Protection code.
-        # Does the thing?
-        async def fake_future_fn():
-            pass
-
-        future = asyncio.run_coroutine_threadsafe(fake_future_fn(), new_loop)
-        next_pending_request = (future, state)
-        PENDING_REQUESTS.append(next_pending_request)
-
-        future.add_done_callback(functools.partial(self.flush_states, state_writer))
+    def handle_state_only(self, state_writer=None, state=None):
+        LOGGER.info("StitchHandler handle_state")
+        line = simplejson.dumps(state)
+        state_writer.write("{}\n".format(line))
+        state_writer.flush()
 
 
     def handle_batch(self, messages, schema, key_names, bookmark_names=None, state_writer=None, state=None):
@@ -278,7 +271,7 @@ class LoggingHandler:  # pylint: disable=too-few-public-methods
         self.max_batch_bytes = max_batch_bytes
         self.max_batch_records = max_batch_records
 
-    def handle_state(self, state_writer=None, state=None):
+    def handle_state_only(self, state_writer=None, state=None):
         LOGGER.info("LoggingHandler handle_state: %s", state)
         line = simplejson.dumps(state)
         state_writer.write("{}\n".format(line))
@@ -320,13 +313,9 @@ class ValidatingHandler: # pylint: disable=too-few-public-methods
     def __init__(self):
         getcontext().prec = 76
 
-    # ValidatingHandler does not care for state messages
-    def handle_state(self, state_writer=None, state=None):
-        LOGGER.info("ValidatingHandler handle_state")
-        line = simplejson.dumps(state)
-        state_writer.write("{}\n".format(line))
-        state_writer.flush()
-
+    # NB: ValidatingHandler does not care for state messages
+    def handle_state_only(self, state_writer=None, state=None):
+        pass
 
     def handle_batch(self, messages, schema, key_names, bookmark_names=None, state_writer=None, state=None): # pylint: disable=no-self-use,unused-argument
         '''Handles messages by validating them against schema.'''
@@ -492,11 +481,11 @@ class TargetStitch:
             # Why is state not set to None here?
             self.buffer_size_bytes = 0
 
-        # bug 2
-        # we only want this to happen where are NO messages - otherwise state is handled above
+        # NB: State is usually handled above but in the case there are no messages
+        # we want to ensure state is handled.
         elif self.state:
             for handler in self.handlers:
-                handler.handle_state(self.state_writer,
+                handler.handle_state_only(self.state_writer,
                                      self.state)
             self.state = None
             TIMINGS.log_timings()
@@ -672,20 +661,18 @@ def main_impl():
                                  args.batch_delay_seconds)
     target_stitch.consume(reader)
 
-
-
     #NB> we need to wait for this to be empty indicating that all of the
     #requests have been finished and their states flushed
     finish_requests()
     LOGGER.info("Requests complete, stopping loop")
     new_loop.call_soon_threadsafe(new_loop.stop)
 
-    # Write final state once all futures have resolved
+    # NB: All messages have been written. Write state a final time in case the tap has emitted one
     if target_stitch.state:
         LOGGER.info("Writing final state.")
-        line = simplejson.dumps(target_stitch.state)
-        target_stitch.state_writer.write("{}\n".format(line))
-        target_stitch.state_writer.flush()
+        for h in handlers:
+            h.handle_state_only(target_stitch.state_writer,
+                                target_stitch.state)
 
 
 def finish_requests(max_count=0):
