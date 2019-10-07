@@ -223,13 +223,11 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         future = asyncio.run_coroutine_threadsafe(post_coroutine(url, headers, data, verify_ssl), new_loop)
         next_pending_request = (future, state)
         PENDING_REQUESTS.append(next_pending_request)
-
-
         future.add_done_callback(functools.partial(self.flush_states, state_writer))
 
 
     def handle_state_only(self, state_writer=None, state=None):
-        LOGGER.info("StitchHandler handle_state")
+        LOGGER.info("StitchHandler handle_state_only")
         line = simplejson.dumps(state)
         state_writer.write("{}\n".format(line))
         state_writer.flush()
@@ -272,7 +270,7 @@ class LoggingHandler:  # pylint: disable=too-few-public-methods
         self.max_batch_records = max_batch_records
 
     def handle_state_only(self, state_writer=None, state=None):
-        LOGGER.info("LoggingHandler handle_state: %s", state)
+        LOGGER.info("LoggingHandler handle_state_only: %s", state)
         line = simplejson.dumps(state)
         state_writer.write("{}\n".format(line))
         state_writer.flush()
@@ -481,12 +479,11 @@ class TargetStitch:
             # Why is state not set to None here?
             self.buffer_size_bytes = 0
 
-        # NB: State is usually handled above but in the case there are no messages
-        # we want to ensure state is handled.
+        # NB> State is usually handled above but in the case there are no messages
+        # we still want to ensure state is emitted.
         elif self.state:
             for handler in self.handlers:
-                handler.handle_state_only(self.state_writer,
-                                     self.state)
+                handler.handle_state_only(self.state_writer, self.state)
             self.state = None
             TIMINGS.log_timings()
 
@@ -543,7 +540,6 @@ class TargetStitch:
                 LOGGER.info('Flushing %d bytes, %d messages, after %.2f seconds',
                              self.buffer_size_bytes, len(self.messages), num_seconds)
                 self.flush()
-                # bug 1: longstanding bug that once triggered this was never reset?
                 self.time_last_batch_sent = time.time()
 
 
@@ -666,14 +662,6 @@ def main_impl():
     finish_requests()
     LOGGER.info("Requests complete, stopping loop")
     new_loop.call_soon_threadsafe(new_loop.stop)
-
-    # NB: All messages have been written. Write state a final time in case the tap has emitted one
-    if target_stitch.state:
-        LOGGER.info("Writing final state.")
-        for h in handlers:
-            h.handle_state_only(target_stitch.state_writer,
-                                target_stitch.state)
-
 
 def finish_requests(max_count=0):
     global PENDING_REQUESTS

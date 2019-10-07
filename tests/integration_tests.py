@@ -437,8 +437,80 @@ class AsyncPushToGate(unittest.TestCase):
         #no state is emitted
         self.assertEqual(self.out.getvalue(), '')
 
+class StateOnly(unittest.TestCase):
+    def setUp(self):
+        token = None
+        handler = StitchHandler(token,
+                                DEFAULT_STITCH_URL,
+                                target_stitch.DEFAULT_MAX_BATCH_BYTES,
+                                2,
+                                10)
+        self.og_check_send_exception = target_stitch.check_send_exception
+        self.out = io.StringIO()
+        self.target_stitch = target_stitch.TargetStitch(
+            [handler], self.out, 4000000, 1, 0)
+        self.queue = []
+        target_stitch.SEND_EXCEPTION = None
+        for f,s in target_stitch.PENDING_REQUESTS:
+            try:
+                f.cancel()
+            except:
+                pass
+
+        target_stitch.PENDING_REQUESTS = []
+        LOGGER.info("cleaning SEND_EXCEPTIONS: %s AND PENDING_REQUESTS: %s",
+                    target_stitch.SEND_EXCEPTION,
+                    target_stitch.PENDING_REQUESTS)
+
+    def test_state_only(self):
+        target_stitch.OUR_SESSION = FakeSession(mock_in_order_all_200)
+        self.queue.append(json.dumps({"type":"STATE", "value":{"bookmarks":{"chicken_stream":{"id": 1 }}}}))
+        #will flush here, because TargetStitch.time_last_batch_sent was set to 0 in setUp
+        self.target_stitch.consume(self.queue)
+        finish_requests()
+
+        emitted_state = list(map(json.loads, self.out.getvalue().strip().split('\n')))
+        self.assertEqual(len(emitted_state), 1)
+        self.assertEqual( emitted_state[0], {'bookmarks': {'chicken_stream': {'id': 1}}})
+
+class StateEdgeCases(unittest.TestCase):
+    def setUp(self):
+        token = None
+        handler = StitchHandler(token,
+                                DEFAULT_STITCH_URL,
+                                target_stitch.DEFAULT_MAX_BATCH_BYTES,
+                                2,
+                                10)
+        self.out = io.StringIO()
+        self.target_stitch = target_stitch.TargetStitch(
+            [handler], self.out, 4000000, 2, 100000)
+        self.queue = [simplejson.dumps({"type": "SCHEMA", "stream": "chicken_stream",
+                                  "key_properties": ["my_float"],
+                                  "schema": {"type": "object",
+                                             "properties": {"my_float": {"type": "number"}}}})]
+        target_stitch.SEND_EXCEPTION = None
+        target_stitch.PENDING_REQUESTS = []
+
+        LOGGER.info("cleaning SEND_EXCEPTIONS: %s AND PENDING_REQUESTS: %s",
+                    target_stitch.SEND_EXCEPTION,
+                    target_stitch.PENDING_REQUESTS)
+
+    def test_trailing_state_after_final_message(self):
+        target_stitch.OUR_SESSION = FakeSession(mock_in_order_all_200)
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 1, "name": "Mike"}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 2, "name": "Paul"}}))
+        #will flush here after 2 records
+        self.queue.append(json.dumps({"type":"STATE", "value":{"bookmarks":{"chicken_stream":{"id": 2 }}}}))
+
+        self.target_stitch.consume(self.queue)
+        finish_requests()
+
+        emitted_state = list(map(json.loads, self.out.getvalue().strip().split('\n')))
+        self.assertEqual(len(emitted_state), 1)
+        self.assertEqual( emitted_state[0], {'bookmarks': {'chicken_stream': {'id': 2}}})
+
 
 if __name__== "__main__":
-    test1 = AsyncPushToGate()
+    test1 = StateOnly()
     test1.setUp()
-    test1.test_requests_in_order_first_errors()
+    test1.test_state_only()
