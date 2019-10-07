@@ -297,7 +297,6 @@ class LoggingHandler:  # pylint: disable=too-few-public-methods
             self.output_file.write(body)
             self.output_file.write('\n')
 
-        # bug 3b: A LoggingHandler should emit states after a valid batch is written
         if state:
             line = simplejson.dumps(state)
             state_writer.write("{}\n".format(line))
