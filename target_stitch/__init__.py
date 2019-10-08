@@ -551,7 +551,7 @@ class TargetStitch:
 
             if num_seconds >= self.batch_delay_seconds:
                 LOGGER.debug('Flushing %d bytes, %d messages, after %.2f seconds',
-                            self.buffer_size_bytes, len(self.messages), num_seconds)
+                             self.buffer_size_bytes, len(self.messages), num_seconds)
                 self.flush()
                 self.time_last_batch_sent = time.time()
 
