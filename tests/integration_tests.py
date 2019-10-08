@@ -528,10 +528,9 @@ class StateEdgeCases(unittest.TestCase):
                                                'currently_syncing' : 'chicken_stream'}}))
 
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 2, "name": "Paul"}}))
-        #will flush here after 2 records
+        #will flush here after 2 records, state will reset to None
 
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 3, "name": "Kyle"}}))
-
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 4, "name": "Alice"}}))
         #will flush here after 2 records, but will NOT write blank state
 

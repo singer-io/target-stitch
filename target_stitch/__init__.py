@@ -322,7 +322,7 @@ class ValidatingHandler: # pylint: disable=too-few-public-methods
     def __init__(self):
         getcontext().prec = 76
 
-    # NB: ValidatingHandler does not care for state messages
+    # pylint: disable=R0201
     def handle_state_only(self, state_writer=None, state=None):
         LOGGER.info("ValidatingHandler handle_state_only: %s", state)
         if state:
