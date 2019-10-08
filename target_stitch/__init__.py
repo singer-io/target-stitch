@@ -179,6 +179,9 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         for f, s in PENDING_REQUESTS:
             if f.done():
                 completed_count = completed_count + 1
+                #NB> this is a very import line.
+                #NEVER blinding emit state just because a coroutine has completed.
+                #if this were None, we would have just nuked the client's state
                 if s:
                     line = simplejson.dumps(s)
                     state_writer.write("{}\n".format(line))
@@ -223,7 +226,19 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         future = asyncio.run_coroutine_threadsafe(post_coroutine(url, headers, data, verify_ssl), new_loop)
         next_pending_request = (future, state)
         PENDING_REQUESTS.append(next_pending_request)
+        future.add_done_callback(functools.partial(self.flush_states, state_writer))
 
+
+    def handle_state_only(self, state_writer=None, state=None):
+        async def fake_future_fn():
+            pass
+
+        global PENDING_REQUESTS
+        #NB> no point in sending out this state if a previous request has failed
+        check_send_exception()
+        future = asyncio.run_coroutine_threadsafe(fake_future_fn(), new_loop)
+        next_pending_request = (future, state)
+        PENDING_REQUESTS.append(next_pending_request)
 
         future.add_done_callback(functools.partial(self.flush_states, state_writer))
 
@@ -264,6 +279,15 @@ class LoggingHandler:  # pylint: disable=too-few-public-methods
         self.max_batch_bytes = max_batch_bytes
         self.max_batch_records = max_batch_records
 
+    # pylint: disable=R0201
+    def handle_state_only(self, state_writer=None, state=None):
+        LOGGER.info("LoggingHandler handle_state_only: %s", state)
+        if state:
+            line = simplejson.dumps(state)
+            state_writer.write("{}\n".format(line))
+            state_writer.flush()
+
+
     def handle_batch(self, messages, schema, key_names, bookmark_names=None, state_writer=None, state=None): #pylint: disable=unused-argument
         '''Handles a batch of messages by saving them to a local output file.
 
@@ -272,6 +296,7 @@ class LoggingHandler:  # pylint: disable=too-few-public-methods
         send to Stitch.
 
         '''
+        LOGGER.info("LoggingHandler handle_batch")
         LOGGER.info("Saving batch with %d messages for table %s to %s",
                     len(messages), messages[0].stream, self.output_file.name)
         for i, body in enumerate(serialize(messages,
@@ -284,6 +309,12 @@ class LoggingHandler:  # pylint: disable=too-few-public-methods
             self.output_file.write(body)
             self.output_file.write('\n')
 
+        if state:
+            line = simplejson.dumps(state)
+            state_writer.write("{}\n".format(line))
+            state_writer.flush()
+
+
 
 class ValidatingHandler: # pylint: disable=too-few-public-methods
     '''Validates input messages against their schema.'''
@@ -291,8 +322,17 @@ class ValidatingHandler: # pylint: disable=too-few-public-methods
     def __init__(self):
         getcontext().prec = 76
 
+    # pylint: disable=R0201
+    def handle_state_only(self, state_writer=None, state=None):
+        LOGGER.info("ValidatingHandler handle_state_only: %s", state)
+        if state:
+            line = simplejson.dumps(state)
+            state_writer.write("{}\n".format(line))
+            state_writer.flush()
+
     def handle_batch(self, messages, schema, key_names, bookmark_names=None, state_writer=None, state=None): # pylint: disable=no-self-use,unused-argument
         '''Handles messages by validating them against schema.'''
+        LOGGER.info("ValidatingHandler handle_batch")
         validator = Draft4Validator(schema, format_checker=FormatChecker())
         for i, message in enumerate(messages):
             if isinstance(message, singer.RecordMessage):
@@ -313,7 +353,10 @@ class ValidatingHandler: # pylint: disable=too-few-public-methods
         LOGGER.info('%s (%s): Batch is valid',
                     messages[0].stream,
                     len(messages))
-
+        if state:
+            line = simplejson.dumps(state)
+            state_writer.write("{}\n".format(line))
+            state_writer.flush()
 
 def generate_sequence(message_num, max_records):
     '''Generates a unique sequence number based on the current time millis
@@ -445,7 +488,17 @@ class TargetStitch:
                                      self.state)
             self.time_last_batch_sent = time.time()
             self.messages = []
+            self.state = None
             self.buffer_size_bytes = 0
+
+        # NB> State is usually handled above but in the case there are no messages
+        # we still want to ensure state is emitted.
+        elif self.state:
+            for handler in self.handlers:
+                handler.handle_state_only(self.state_writer, self.state)
+            self.state = None
+            TIMINGS.log_timings()
+
 
     def handle_line(self, line):
 
@@ -495,10 +548,12 @@ class TargetStitch:
             # only check time since state message does not increase num_messages or
             # num_bytes for the batch
             num_seconds = time.time() - self.time_last_batch_sent
+
             if num_seconds >= self.batch_delay_seconds:
                 LOGGER.debug('Flushing %d bytes, %d messages, after %.2f seconds',
                              self.buffer_size_bytes, len(self.messages), num_seconds)
                 self.flush()
+                self.time_last_batch_sent = time.time()
 
 
 
@@ -615,20 +670,11 @@ def main_impl():
                                  args.batch_delay_seconds)
     target_stitch.consume(reader)
 
-
-
     #NB> we need to wait for this to be empty indicating that all of the
     #requests have been finished and their states flushed
     finish_requests()
     LOGGER.info("Requests complete, stopping loop")
     new_loop.call_soon_threadsafe(new_loop.stop)
-
-    # Write final state once all futures have resolved
-    if target_stitch.state:
-        LOGGER.info("Writing final state.")
-        line = simplejson.dumps(target_stitch.state)
-        target_stitch.state_writer.write("{}\n".format(line))
-        target_stitch.state_writer.flush()
 
 
 def finish_requests(max_count=0):
