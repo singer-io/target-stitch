@@ -279,6 +279,7 @@ class LoggingHandler:  # pylint: disable=too-few-public-methods
         self.max_batch_bytes = max_batch_bytes
         self.max_batch_records = max_batch_records
 
+    # pylint: disable=R0201
     def handle_state_only(self, state_writer=None, state=None):
         LOGGER.info("LoggingHandler handle_state_only: %s", state)
         line = simplejson.dumps(state)
@@ -542,7 +543,7 @@ class TargetStitch:
 
             if num_seconds >= self.batch_delay_seconds:
                 LOGGER.info('Flushing %d bytes, %d messages, after %.2f seconds',
-                             self.buffer_size_bytes, len(self.messages), num_seconds)
+                            self.buffer_size_bytes, len(self.messages), num_seconds)
                 self.flush()
                 self.time_last_batch_sent = time.time()
 
