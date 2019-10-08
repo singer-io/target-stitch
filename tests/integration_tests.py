@@ -520,8 +520,31 @@ class StateEdgeCases(unittest.TestCase):
                           {"bookmarks":{"chicken_stream":{"id": 2 }},
                            'currently_syncing' : None})
 
+    def test_will_not_output_empty_state(self):
+        target_stitch.OUR_SESSION = FakeSession(mock_in_order_all_200)
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 1, "name": "Mike"}}))
+        self.queue.append(json.dumps({"type":"STATE",
+                                      "value":{"bookmarks":{"chicken_stream":{"id": 1 }},
+                                               'currently_syncing' : 'chicken_stream'}}))
+
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 2, "name": "Paul"}}))
+        #will flush here after 2 records
+
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 3, "name": "Kyle"}}))
+
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 4, "name": "Alice"}}))
+        #will flush here after 2 records, but will NOT write blank state
+
+        self.target_stitch.consume(self.queue)
+        finish_requests()
+
+        emitted_state = list(map(json.loads, self.out.getvalue().strip().split('\n')))
+        self.assertEqual(len(emitted_state), 1)
+        self.assertEqual( emitted_state[0],
+                          {"bookmarks":{"chicken_stream":{"id": 1 }},
+                           'currently_syncing' : 'chicken_stream'})
 
 if __name__== "__main__":
-    test1 = StateOnly()
+    test1 = StateEdgeCases()
     test1.setUp()
-    test1.test_state_only()
+    test1.test_will_not_output_empty_state()
