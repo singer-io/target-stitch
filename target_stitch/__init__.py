@@ -324,7 +324,11 @@ class ValidatingHandler: # pylint: disable=too-few-public-methods
 
     # NB: ValidatingHandler does not care for state messages
     def handle_state_only(self, state_writer=None, state=None):
-        pass
+        LOGGER.info("ValidatingHandler handle_state_only: %s", state)
+        if state:
+            line = simplejson.dumps(state)
+            state_writer.write("{}\n".format(line))
+            state_writer.flush()
 
     def handle_batch(self, messages, schema, key_names, bookmark_names=None, state_writer=None, state=None): # pylint: disable=no-self-use,unused-argument
         '''Handles messages by validating them against schema.'''
@@ -349,6 +353,10 @@ class ValidatingHandler: # pylint: disable=too-few-public-methods
         LOGGER.info('%s (%s): Batch is valid',
                     messages[0].stream,
                     len(messages))
+        if state:
+            line = simplejson.dumps(state)
+            state_writer.write("{}\n".format(line))
+            state_writer.flush()
 
 def generate_sequence(message_num, max_records):
     '''Generates a unique sequence number based on the current time millis
