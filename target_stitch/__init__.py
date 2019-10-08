@@ -179,6 +179,9 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         for f, s in PENDING_REQUESTS:
             if f.done():
                 completed_count = completed_count + 1
+                #NB> this is a very import line.
+                #NEVER blinding emit state just because a coroutine has completed.
+                #if this were None, we would have just nuked the client's state
                 if s:
                     line = simplejson.dumps(s)
                     state_writer.write("{}\n".format(line))
@@ -227,10 +230,17 @@ class StitchHandler: # pylint: disable=too-few-public-methods
 
 
     def handle_state_only(self, state_writer=None, state=None):
-        LOGGER.info("StitchHandler handle_state_only")
-        line = simplejson.dumps(state)
-        state_writer.write("{}\n".format(line))
-        state_writer.flush()
+        async def fake_future_fn():
+            pass
+
+        global PENDING_REQUESTS
+        #NB> no point in sending out this state if a previous request has failed
+        check_send_exception()
+        future = asyncio.run_coroutine_threadsafe(fake_future_fn(), new_loop)
+        next_pending_request = (future, state)
+        PENDING_REQUESTS.append(next_pending_request)
+
+        future.add_done_callback(functools.partial(self.flush_states, state_writer))
 
 
     def handle_batch(self, messages, schema, key_names, bookmark_names=None, state_writer=None, state=None):
@@ -337,13 +347,6 @@ class ValidatingHandler: # pylint: disable=too-few-public-methods
         LOGGER.info('%s (%s): Batch is valid',
                     messages[0].stream,
                     len(messages))
-
-        # bug 3a: A ValidatingHandler should emit states after a valid batch is written
-        if state:
-            line = simplejson.dumps(state)
-            state_writer.write("{}\n".format(line))
-            state_writer.flush()
-
 
 def generate_sequence(message_num, max_records):
     '''Generates a unique sequence number based on the current time millis
@@ -475,7 +478,8 @@ class TargetStitch:
                                      self.state)
             self.time_last_batch_sent = time.time()
             self.messages = []
-            # Why is state not set to None here?
+            # We must nuke the state here or it might get picked up consume's final flush!!!!!
+            self.state = None
             self.buffer_size_bytes = 0
 
         # NB> State is usually handled above but in the case there are no messages
@@ -535,6 +539,7 @@ class TargetStitch:
             # only check time since state message does not increase num_messages or
             # num_bytes for the batch
             num_seconds = time.time() - self.time_last_batch_sent
+
             if num_seconds >= self.batch_delay_seconds:
                 LOGGER.info('Flushing %d bytes, %d messages, after %.2f seconds',
                              self.buffer_size_bytes, len(self.messages), num_seconds)
@@ -661,6 +666,7 @@ def main_impl():
     finish_requests()
     LOGGER.info("Requests complete, stopping loop")
     new_loop.call_soon_threadsafe(new_loop.stop)
+
 
 def finish_requests(max_count=0):
     global PENDING_REQUESTS

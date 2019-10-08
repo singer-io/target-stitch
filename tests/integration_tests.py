@@ -498,16 +498,27 @@ class StateEdgeCases(unittest.TestCase):
     def test_trailing_state_after_final_message(self):
         target_stitch.OUR_SESSION = FakeSession(mock_in_order_all_200)
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 1, "name": "Mike"}}))
+        self.queue.append(json.dumps({"type":"STATE",
+                                      "value":{"bookmarks":{"chicken_stream":{"id": 1 }},
+                                               'currently_syncing' : 'chicken_stream'}}))
+
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 2, "name": "Paul"}}))
         #will flush here after 2 records
-        self.queue.append(json.dumps({"type":"STATE", "value":{"bookmarks":{"chicken_stream":{"id": 2 }}}}))
+        self.queue.append(json.dumps({"type":"STATE",
+                                      "value":{"bookmarks":{"chicken_stream":{"id": 2 }},
+                                               'currently_syncing' : None}}))
 
         self.target_stitch.consume(self.queue)
         finish_requests()
 
         emitted_state = list(map(json.loads, self.out.getvalue().strip().split('\n')))
-        self.assertEqual(len(emitted_state), 1)
-        self.assertEqual( emitted_state[0], {'bookmarks': {'chicken_stream': {'id': 2}}})
+        self.assertEqual(len(emitted_state), 2)
+        self.assertEqual( emitted_state[0],
+                          {"bookmarks":{"chicken_stream":{"id": 1 }},
+                           'currently_syncing' : 'chicken_stream'})
+        self.assertEqual( emitted_state[1],
+                          {"bookmarks":{"chicken_stream":{"id": 2 }},
+                           'currently_syncing' : None})
 
 
 if __name__== "__main__":
