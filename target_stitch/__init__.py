@@ -488,7 +488,6 @@ class TargetStitch:
                                      self.state)
             self.time_last_batch_sent = time.time()
             self.messages = []
-            # We must nuke the state here or it might get picked up consume's final flush!!!!!
             self.state = None
             self.buffer_size_bytes = 0
 
@@ -551,7 +550,7 @@ class TargetStitch:
             num_seconds = time.time() - self.time_last_batch_sent
 
             if num_seconds >= self.batch_delay_seconds:
-                LOGGER.info('Flushing %d bytes, %d messages, after %.2f seconds',
+                LOGGER.debug('Flushing %d bytes, %d messages, after %.2f seconds',
                             self.buffer_size_bytes, len(self.messages), num_seconds)
                 self.flush()
                 self.time_last_batch_sent = time.time()
@@ -626,7 +625,7 @@ def main_impl():
         action='store_true')
     parser.add_argument('--max-batch-records', type=int, default=DEFAULT_MAX_BATCH_RECORDS)
     parser.add_argument('--max-batch-bytes', type=int, default=DEFAULT_MAX_BATCH_BYTES)
-    parser.add_argument('--batch-delay-seconds', type=float, default=30.0)
+    parser.add_argument('--batch-delay-seconds', type=float, default=300.0)
     args = parser.parse_args()
 
     if args.verbose:
