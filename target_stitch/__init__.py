@@ -282,9 +282,10 @@ class LoggingHandler:  # pylint: disable=too-few-public-methods
     # pylint: disable=R0201
     def handle_state_only(self, state_writer=None, state=None):
         LOGGER.info("LoggingHandler handle_state_only: %s", state)
-        line = simplejson.dumps(state)
-        state_writer.write("{}\n".format(line))
-        state_writer.flush()
+        if state:
+            line = simplejson.dumps(state)
+            state_writer.write("{}\n".format(line))
+            state_writer.flush()
 
 
     def handle_batch(self, messages, schema, key_names, bookmark_names=None, state_writer=None, state=None): #pylint: disable=unused-argument
