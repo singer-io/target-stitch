@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 from decimal import Decimal, getcontext
 import asyncio
 import concurrent
+from pprint import pformat
 import simplejson
 import psutil
 
@@ -37,6 +38,7 @@ import backoff
 
 import singer
 import ciso8601
+
 
 LOGGER = singer.get_logger().getChild('target_stitch')
 
@@ -164,7 +166,7 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         global SEND_EXCEPTION
 
         completed_count = 0
-        from pprint import pformat
+
 
         #NB> if/when the first coroutine errors out, we will record it for examination by the main threa.
         #if/when this happens, no further flushing of state should ever occur.  the main thread, in fact,
@@ -176,20 +178,24 @@ class StitchHandler: # pylint: disable=too-few-public-methods
             LOGGER.info('FLUSH early exit because of SEND_EXCEPTION: %s', pformat(SEND_EXCEPTION))
             return
 
-        for f, s in PENDING_REQUESTS:
-            if f.done():
-                completed_count = completed_count + 1
-                #NB> this is a very import line.
-                #NEVER blinding emit state just because a coroutine has completed.
-                #if this were None, we would have just nuked the client's state
-                if s:
-                    line = simplejson.dumps(s)
-                    state_writer.write("{}\n".format(line))
-                    state_writer.flush()
-            else:
-                break
+        try:
+            for f, s in PENDING_REQUESTS:
+                if f.done():
+                    completed_count = completed_count + 1
+                    #NB> this is a very import line.
+                    #NEVER blinding emit state just because a coroutine has completed.
+                    #if this were None, we would have just nuked the client's state
+                    if s:
+                        line = simplejson.dumps(s)
+                        state_writer.write("{}\n".format(line))
+                        state_writer.flush()
+                else:
+                    break
 
-        PENDING_REQUESTS = PENDING_REQUESTS[completed_count:]
+            PENDING_REQUESTS = PENDING_REQUESTS[completed_count:]
+
+        except BaseException as err:
+            SEND_EXCEPTION = err
 
 
     def headers(self):

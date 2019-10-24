@@ -546,4 +546,4 @@ class StateEdgeCases(unittest.TestCase):
 if __name__== "__main__":
     test1 = StateEdgeCases()
     test1.setUp()
-    test1.test_will_not_output_empty_state()
+    test1.test_trailing_state_after_final_message()
