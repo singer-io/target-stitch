@@ -1,5 +1,8 @@
 # Changelog
 
+## 2.0.7
+  * Any exception in flush_state callback will set SEND_EXCEPTION resulting in the termination of the main thread and process.
+
 ## 2.0.5
   * Emits final state after all records have been pushed to Stitch, before exit [#71](https://github.com/singer-io/target-stitch/pull/71)
 
