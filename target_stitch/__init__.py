@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 from decimal import Decimal, getcontext
 import asyncio
 import concurrent
+from pprint import pformat
 import simplejson
 import psutil
 
@@ -37,7 +38,7 @@ import backoff
 
 import singer
 import ciso8601
-from pprint import pformat
+
 
 LOGGER = singer.get_logger().getChild('target_stitch')
 
