@@ -185,13 +185,12 @@ class StitchHandler: # pylint: disable=too-few-public-methods
                     #if this were None, we would have just nuked the client's state
                     if s:
                         line = simplejson.dumps(s)
-                        #NB> possible state_writer.close() but probably did not happen
-                        # because we are missing exception calling callback for <Future at 0x7f98df4ffdd8 state=finished returned dict>
                         state_writer.write("{}\n".format(line))
                         state_writer.flush()
-                    else:
-                        break
-                    PENDING_REQUESTS = PENDING_REQUESTS[completed_count:]
+                else:
+                    break
+
+            PENDING_REQUESTS = PENDING_REQUESTS[completed_count:]
 
         except BaseException as err:
             SEND_EXCEPTION = err
