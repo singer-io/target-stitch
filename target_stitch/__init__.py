@@ -37,6 +37,7 @@ import backoff
 
 import singer
 import ciso8601
+from pprint import pformat
 
 LOGGER = singer.get_logger().getChild('target_stitch')
 
@@ -164,7 +165,7 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         global SEND_EXCEPTION
 
         completed_count = 0
-        from pprint import pformat
+
 
         #NB> if/when the first coroutine errors out, we will record it for examination by the main threa.
         #if/when this happens, no further flushing of state should ever occur.  the main thread, in fact,
