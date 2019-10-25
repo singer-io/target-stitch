@@ -252,8 +252,6 @@ class AsyncPushToGate(unittest.TestCase):
         except Exception as ex:
             our_exception = ex
 
-        # import pdb
-        # pdb.set_trace()
         self.assertIsNotNone(our_exception)
         self.assertTrue(isinstance(our_exception, TargetStitchException))
 
