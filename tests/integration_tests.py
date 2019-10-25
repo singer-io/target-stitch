@@ -443,13 +443,16 @@ class AsyncPushToGate(unittest.TestCase):
         self.queue.append(json.dumps({"type":"STATE", "value":{"bookmarks":{"chicken_stream":{"id": 1 }}}}))
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 2, "name": "Paul"}}))
         #will flush here after 2 records
-        self.target_stitch.consume(self.queue)
-        finish_requests()
 
-        emitted_state = list(map(json.loads, self.out.getvalue().strip().split('\n')))
-        self.assertEqual(len(emitted_state), 2)
-        self.assertEqual( emitted_state[0], {'bookmarks': {'chicken_stream': {'id': 1}}})
-        self.assertEqual( emitted_state[1], {'bookmarks': {'chicken_stream': {'id': 3}}})
+        target_stitch.check_send_exception = fake_check_send_exception
+        self.target_stitch.consume(self.queue)
+        target_stitch.check_send_exception = self.og_check_send_exception
+        try:
+            finish_requests()
+        except Exception as ex:
+            our_exception = ex
+
+        self.assertIsNotNone(our_exception)
 
 
 class StateOnly(unittest.TestCase):
