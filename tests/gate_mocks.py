@@ -1,3 +1,16 @@
+import asyncio
+
+def mock_unparsable_response_body_200(requests_sent):
+    class FakeResponse:
+        def __init__(self, requests_sent):
+            self.requests_sent = requests_sent
+
+        async def json(self):
+            self.status = 200
+            raise Exception("bad json response")
+
+    return FakeResponse(requests_sent)
+
 def mock_in_order_all_200(requests_sent):
     class FakeResponse:
         def __init__(self, requests_sent):
