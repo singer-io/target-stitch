@@ -19,5 +19,7 @@ jobs:
           command: |
             # Need to re-activate the virtualenv
             source ~/.virtualenvs/target-stitch/bin/activate
-            nosetests
+            nosetests tests/activate_version_tests.py 
+            nosetests --ignore-files=activate_version_tests.py
+            #nosetests
             pylint target_stitch "--extension-pkg-whitelist=ciso8601"

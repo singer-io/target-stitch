@@ -395,12 +395,14 @@ class AsyncPushToGate(unittest.TestCase):
         except Exception as ex:
             our_exception = ex
 
+        #the 2nd request returns immediately with a 400, triggering a TargetStitchException.
+        #at this point, it is game over and it does NOT matter when or with what status the 1st request comples
         self.assertIsNotNone(our_exception)
         self.assertTrue(isinstance(our_exception, TargetStitchException))
 
         emitted_state = self.out.getvalue().strip().split('\n')
         self.assertEqual(1, len(emitted_state))
-        self.assertEqual({'bookmarks': {'chicken_stream': {'id': 1}}}, json.loads(emitted_state[0]))
+        self.assertEqual('', emitted_state[0])
 
     # 2 requests.
     # both with state.
@@ -560,67 +562,11 @@ class StateEdgeCases(unittest.TestCase):
                           {"bookmarks":{"chicken_stream":{"id": 1 }},
                            'currently_syncing' : 'chicken_stream'})
 
-class ActivateVersion(unittest.TestCase):
-    def fake_flush_states(self, state_writer, future):
-        self.flushed_state_count = self.flushed_state_count + 1
-        if self.flushed_state_count == 1:
-            #2nd request has not begun because it contains an ActivateVersion and must wait for 1 to complete
-            self.assertEqual(1, len(target_stitch.PENDING_REQUESTS), "ActivateVersion request should not have been issues until 1st request completed")
-            self.assertEqual(future, target_stitch.PENDING_REQUESTS[0][0])
-            self.assertEqual({'bookmarks': {'chicken_stream': {'id': 1}}}, target_stitch.PENDING_REQUESTS[0][1])
-        elif self.flushed_state_count == 2:
-            self.assertEqual(1, len(target_stitch.PENDING_REQUESTS))
-            self.assertEqual(future, target_stitch.PENDING_REQUESTS[0][0])
-            self.assertEqual(None, target_stitch.PENDING_REQUESTS[0][1])
-        else:
-            raise Exception('flushed state should only have been called twice')
-
-        self.og_flush_states(state_writer, future)
-
-    def setUp(self):
-        token = None
-
-        handler = StitchHandler(token,
-                                DEFAULT_STITCH_URL,
-                                target_stitch.DEFAULT_MAX_BATCH_BYTES,
-                                2,
-                                10)
-        self.out = io.StringIO()
-        self.target_stitch = target_stitch.TargetStitch(
-            [handler], self.out, 4000000, 2, 100000)
-        self.queue = [simplejson.dumps({"type": "SCHEMA", "stream": "chicken_stream",
-                                  "key_properties": ["my_float"],
-                                  "schema": {"type": "object",
-                                             "properties": {"my_float": {"type": "number"}}}})]
-        target_stitch.SEND_EXCEPTION = None
-        target_stitch.PENDING_REQUESTS = []
-        self.og_flush_states = StitchHandler.flush_states
-        self.flushed_state_count = 0
-        StitchHandler.flush_states = self.fake_flush_states
-
-
-    def test_activate_version_finishes_pending_requests(self):
-        target_stitch.OUR_SESSION = FakeSession(mock_out_of_order_all_200)
-        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "version":1, "record": {"id": 1, "name": "Mike"}}))
-        self.queue.append(json.dumps({"type":"STATE", "value":{"bookmarks":{"chicken_stream":{"id": 1 }}}}))
-        #will flush here after 2 records
-        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", 'version':1, "record": {"id": 2, "name": "Paul"}}))
-        self.queue.append(json.dumps({"type":"ACTIVATE_VERSION", 'stream': 'chicken_stream', 'version': 1 }))
-        #will flush here after 2 records
-
-
-        self.target_stitch.consume(self.queue)
-        finish_requests()
-
-        #request 2 would ordinarily complete first because the mock_out_of_order_all_200, but because
-        #request 2 contains an ACTIVATE_VERSION, it will not even be sent until request 1 completes
-
 
 #TODO: test for unparsable result.body. should throw stitchClientResponseError(response.status, "unable to parse response body as json")
 
 if __name__== "__main__":
-    # test1 = ActivateVersion()
     test1 = AsyncPushToGate()
     test1.setUp()
-    # test1.test_activate_version_finishes_pending_requests()
-    test1.test_unparseable_json_response()
+    test1.test_requests_out_of_order_second_errors()
+    # test1.test_requests_in_order()
