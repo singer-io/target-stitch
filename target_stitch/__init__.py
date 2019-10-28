@@ -750,7 +750,7 @@ async def post_coroutine(url, headers, data, verify_ssl):
         result_body = None
         try:
             result_body = await response.json()
-        except BaseException as ex: #pylint: disable=bare-except
+        except BaseException as ex: #pylint: disable=unused-variable
             raise StitchClientResponseError(response.status, "unable to parse response body as json")
 
         if response.status // 100 != 2:
