@@ -9,9 +9,9 @@ import asyncio
 import simplejson
 from decimal import Decimal
 try:
-    from tests.gate_mocks import mock_in_order_all_200, mock_out_of_order_all_200, mock_in_order_first_errors, mock_in_order_second_errors, mock_out_of_order_first_errors, mock_out_of_order_second_errors, mock_out_of_order_both_error, mock_in_order_both_error
+    from tests.gate_mocks import mock_in_order_all_200, mock_out_of_order_all_200, mock_in_order_first_errors, mock_in_order_second_errors, mock_out_of_order_first_errors, mock_out_of_order_second_errors, mock_out_of_order_both_error, mock_in_order_both_error, mock_unparsable_response_body_200
 except ImportError:
-    from gate_mocks  import mock_in_order_all_200, mock_out_of_order_all_200, mock_in_order_first_errors, mock_in_order_second_errors, mock_out_of_order_first_errors, mock_out_of_order_second_errors, mock_out_of_order_both_error, mock_in_order_both_error
+    from gate_mocks  import mock_in_order_all_200, mock_out_of_order_all_200, mock_in_order_first_errors, mock_in_order_second_errors, mock_out_of_order_first_errors, mock_out_of_order_second_errors, mock_out_of_order_both_error, mock_in_order_both_error, mock_unparsable_response_body_200
 
 from nose.tools import nottest
 
@@ -252,8 +252,6 @@ class AsyncPushToGate(unittest.TestCase):
         except Exception as ex:
             our_exception = ex
 
-        # import pdb
-        # pdb.set_trace()
         self.assertIsNotNone(our_exception)
         self.assertTrue(isinstance(our_exception, TargetStitchException))
 
@@ -397,12 +395,14 @@ class AsyncPushToGate(unittest.TestCase):
         except Exception as ex:
             our_exception = ex
 
+        #the 2nd request returns immediately with a 400, triggering a TargetStitchException.
+        #at this point, it is game over and it does NOT matter when or with what status the 1st request comples
         self.assertIsNotNone(our_exception)
         self.assertTrue(isinstance(our_exception, TargetStitchException))
 
         emitted_state = self.out.getvalue().strip().split('\n')
         self.assertEqual(1, len(emitted_state))
-        self.assertEqual({'bookmarks': {'chicken_stream': {'id': 1}}}, json.loads(emitted_state[0]))
+        self.assertEqual('', emitted_state[0])
 
     # 2 requests.
     # both with state.
@@ -436,6 +436,24 @@ class AsyncPushToGate(unittest.TestCase):
 
         #no state is emitted
         self.assertEqual(self.out.getvalue(), '')
+
+    def test_unparseable_json_response(self):
+        target_stitch.OUR_SESSION = FakeSession(mock_unparsable_response_body_200)
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 1, "name": "Mike"}}))
+        self.queue.append(json.dumps({"type":"STATE", "value":{"bookmarks":{"chicken_stream":{"id": 1 }}}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 2, "name": "Paul"}}))
+        #will flush here after 2 records
+
+        target_stitch.check_send_exception = fake_check_send_exception
+        self.target_stitch.consume(self.queue)
+        target_stitch.check_send_exception = self.og_check_send_exception
+        try:
+            finish_requests()
+        except Exception as ex:
+            our_exception = ex
+
+        self.assertIsNotNone(our_exception)
+
 
 class StateOnly(unittest.TestCase):
     def setUp(self):
@@ -472,6 +490,7 @@ class StateOnly(unittest.TestCase):
         emitted_state = list(map(json.loads, self.out.getvalue().strip().split('\n')))
         self.assertEqual(len(emitted_state), 1)
         self.assertEqual( emitted_state[0], {'bookmarks': {'chicken_stream': {'id': 1}}})
+
 
 class StateEdgeCases(unittest.TestCase):
     def setUp(self):
@@ -543,7 +562,11 @@ class StateEdgeCases(unittest.TestCase):
                           {"bookmarks":{"chicken_stream":{"id": 1 }},
                            'currently_syncing' : 'chicken_stream'})
 
+
+#TODO: test for unparsable result.body. should throw stitchClientResponseError(response.status, "unable to parse response body as json")
+
 if __name__== "__main__":
-    test1 = StateEdgeCases()
+    test1 = AsyncPushToGate()
     test1.setUp()
-    test1.test_trailing_state_after_final_message()
+    test1.test_requests_out_of_order_second_errors()
+    # test1.test_requests_in_order()

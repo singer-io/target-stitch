@@ -21,7 +21,7 @@ class DummyClient(object):
     def __init__(self):
         self.batches = []
 
-    def handle_batch(self, messages, schema, key_names, bookmark_names, state_writer, state):
+    def handle_batch(self, messages, contains_activate_version, schema, key_names, bookmark_names, state_writer, state):
         self.batches.append(
             {'messages': messages,
              'schema': schema,

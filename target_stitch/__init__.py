@@ -167,7 +167,6 @@ class StitchHandler: # pylint: disable=too-few-public-methods
 
         completed_count = 0
 
-
         #NB> if/when the first coroutine errors out, we will record it for examination by the main threa.
         #if/when this happens, no further flushing of state should ever occur.  the main thread, in fact,
         #should shutdown quickly after it spots the exception
@@ -205,7 +204,7 @@ class StitchHandler: # pylint: disable=too-few-public-methods
             'Content-Type': 'application/json'
         }
 
-    def send(self, data, state_writer, state):
+    def send(self, data, contains_activate_version, state_writer, state):
         '''Send the given data to Stitch, retrying on exceptions'''
         global PENDING_REQUESTS
         global SEND_EXCEPTION
@@ -218,9 +217,14 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         if os.environ.get("TARGET_STITCH_SSL_VERIFY") == 'false':
             verify_ssl = False
 
+        #NB> before we send any activate_versions we must ensure that all PENDING_REQUETS complete.
+        #this is to ensure ordering in the case of Full Table replication where the Activate Version,
+        #must arrive AFTER all of the relevant data.
+        if len(PENDING_REQUESTS) > 0 and contains_activate_version:
+            LOGGER.info('Sending batch with ActivateVersion. Flushing PENDING_REQUESTS first')
+            finish_requests()
 
         if len(PENDING_REQUESTS) >= self.turbo_boost_factor:
-            #LOGGER.info("pendingRequest(%s) >= turbo_boost_factor(%s) waiting...", len(PENDING_REQUESTS), self.turbo_boost_factor)
 
             #wait for to finish the first future before resuming the main thread
             finish_requests(self.turbo_boost_factor - 1)
@@ -249,7 +253,7 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         future.add_done_callback(functools.partial(self.flush_states, state_writer))
 
 
-    def handle_batch(self, messages, schema, key_names, bookmark_names=None, state_writer=None, state=None):
+    def handle_batch(self, messages, contains_activate_version, schema, key_names, bookmark_names=None, state_writer=None, state=None, ):
         '''Handle messages by sending them to Stitch.
 
         If the serialized form of the messages is too large to fit into a
@@ -276,7 +280,7 @@ class StitchHandler: # pylint: disable=too-few-public-methods
                 if i + 1 == len(bodies):
                     flushable_state = state
 
-                self.send(body, state_writer, flushable_state)
+                self.send(body, contains_activate_version, state_writer, flushable_state)
 
 class LoggingHandler:  # pylint: disable=too-few-public-methods
     '''Logs records to a local output file.'''
@@ -294,7 +298,7 @@ class LoggingHandler:  # pylint: disable=too-few-public-methods
             state_writer.flush()
 
 
-    def handle_batch(self, messages, schema, key_names, bookmark_names=None, state_writer=None, state=None): #pylint: disable=unused-argument
+    def handle_batch(self, messages, contains_activate_version, schema, key_names, bookmark_names=None, state_writer=None, state=None): #pylint: disable=unused-argument
         '''Handles a batch of messages by saving them to a local output file.
 
         Serializes records in the same way StitchHandler does, so the
@@ -336,7 +340,7 @@ class ValidatingHandler: # pylint: disable=too-few-public-methods
             state_writer.write("{}\n".format(line))
             state_writer.flush()
 
-    def handle_batch(self, messages, schema, key_names, bookmark_names=None, state_writer=None, state=None): # pylint: disable=no-self-use,unused-argument
+    def handle_batch(self, messages, contains_activate_version, schema, key_names, bookmark_names=None, state_writer=None, state=None): # pylint: disable=no-self-use,unused-argument
         '''Handles messages by validating them against schema.'''
         LOGGER.info("ValidatingHandler handle_batch")
         validator = Draft4Validator(schema, format_checker=FormatChecker())
@@ -455,6 +459,7 @@ class TargetStitch:
                  max_batch_records,
                  batch_delay_seconds):
         self.messages = []
+        self.contains_activate_version = False
         self.buffer_size_bytes = 0
         self.state = None
 
@@ -487,13 +492,16 @@ class TargetStitch:
             stream_meta = self.stream_meta[self.messages[0].stream]
             for handler in self.handlers:
                 handler.handle_batch(self.messages,
+                                     self.contains_activate_version,
                                      stream_meta.schema,
                                      stream_meta.key_properties,
                                      stream_meta.bookmark_properties,
                                      self.state_writer,
                                      self.state)
+
             self.time_last_batch_sent = time.time()
             self.messages = []
+            self.contains_activate_version = False
             self.state = None
             self.buffer_size_bytes = 0
 
@@ -535,6 +543,8 @@ class TargetStitch:
 
             self.messages.append(message)
             self.buffer_size_bytes += len(line)
+            if isinstance(message, singer.ActivateVersionMessage):
+                self.contains_activate_version = True
 
             num_bytes = self.buffer_size_bytes
             num_messages = len(self.messages)
@@ -742,9 +752,9 @@ async def post_coroutine(url, headers, data, verify_ssl):
         result_body = None
         try:
             result_body = await response.json()
-        except: #pylint: disable=bare-except
-            pass
-        # LOGGER.info("POST response: %s %s", response.status, result_body)
+        except BaseException as ex: #pylint: disable=unused-variable
+            raise StitchClientResponseError(response.status, "unable to parse response body as json")
+
         if response.status // 100 != 2:
             raise StitchClientResponseError(response.status, result_body)
 
