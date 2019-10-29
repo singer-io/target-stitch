@@ -221,9 +221,11 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         #this is to ensure ordering in the case of Full Table replication where the Activate Version,
         #must arrive AFTER all of the relevant data.
         if len(PENDING_REQUESTS) > 0 and contains_activate_version:
+            LOGGER.info('Sending batch with ActivateVersion. Flushing PENDING_REQUESTS first')
             finish_requests()
 
         if len(PENDING_REQUESTS) >= self.turbo_boost_factor:
+
             #wait for to finish the first future before resuming the main thread
             finish_requests(self.turbo_boost_factor - 1)
 
