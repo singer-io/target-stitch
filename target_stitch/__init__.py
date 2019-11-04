@@ -184,11 +184,10 @@ def parse_config(config_location):
 class StitchHandler: # pylint: disable=too-few-public-methods
     '''Sends messages to Stitch.'''
 
-    def __init__(self, max_batch_bytes, max_batch_records, turbo_boost_factor=1):
+    def __init__(self, max_batch_bytes, max_batch_records):
         self.token = CONFIG.get('token')
         self.max_batch_bytes = max_batch_bytes
         self.max_batch_records = max_batch_records
-        self.turbo_boost_factor = CONFIG.get('stitch_turbo_boost_factor', 1)
 
     @staticmethod
     #this happens in the event loop
@@ -277,10 +276,10 @@ class StitchHandler: # pylint: disable=too-few-public-methods
             LOGGER.info('Sending batch with ActivateVersion. Flushing PENDING_REQUESTS first')
             finish_requests()
 
-        if len(PENDING_REQUESTS) >= self.turbo_boost_factor:
+        if len(PENDING_REQUESTS) >= CONFIG.get('turbo_boost_factor'):
 
             #wait for to finish the first future before resuming the main thread
-            finish_requests(self.turbo_boost_factor - 1)
+            finish_requests(CONFIG.get('turbo_boost_factor') - 1)
 
         #NB> this schedules the task on the event loop thread.
         #    it will be executed at some point in the future
