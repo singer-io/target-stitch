@@ -178,6 +178,27 @@ def parse_config(config_location):
     if not CONFIG['big_batch_url']:
         raise Exception('Configuration is missing required "big_batch_url"')
 
+def determine_stitch_url(stream_name):
+    batch_size_prefs = CONFIG.get('batch_size_preferences')
+    if stream_name in batch_size_prefs.get('full_table_streams'):
+        return CONFIG.get('big_batch_url')
+
+    #eg. platform.heap requires S3 because it is fulltable data
+    if batch_size_prefs.get('batch_size_preference') == 'bigbatch':
+        return CONFIG.get('big_batch_url')
+
+    if batch_size_prefs.get('batch_size_preference') == 'smallbatch':
+        return CONFIG.get('small_batch_url')
+
+    #NB> not implemented yet
+    if batch_size_prefs.get('user_batch_size_preference') == 'bigbatch':
+        return CONFIG.get('big_batch_url')
+
+    #NB> not implemented yet
+    if batch_size_prefs.get('user_batch_size_preference') == 'smallbatch':
+        return CONFIG.get('small_batch_url')
+
+    return CONFIG.get('small_batch_url')
 
 
 
@@ -235,28 +256,6 @@ class StitchHandler: # pylint: disable=too-few-public-methods
             'Content-Type': 'application/json'
         }
 
-    def determine_stitch_url(self, stream_name): #pylint: disable=no-self-use
-        batch_size_prefs = CONFIG.get('batch_size_preferences')
-        if stream_name in batch_size_prefs.get('full_table_streams'):
-            return CONFIG.get('big_batch_url')
-
-        #eg. platform.heap requires S3 because it is fulltable data
-        if batch_size_prefs.get('batch_size_preference') == 'bigbatch':
-            return CONFIG.get('big_batch_url')
-
-        if batch_size_prefs.get('batch_size_preference') == 'smallbatch':
-            return CONFIG.get('small_batch_url')
-
-        #NB> not implemented yet
-        if batch_size_prefs.get('user_batch_size_preference') == 'bigbatch':
-            return CONFIG.get('big_batch_url')
-
-        #NB> not implemented yet
-        if batch_size_prefs.get('user_batch_size_preference') == 'smallbatch':
-            return CONFIG.get('small_batch_url')
-
-        return CONFIG.get('small_batch_url')
-
     def send(self, data, contains_activate_version, state_writer, state, stitch_url):
         '''Send the given data to Stitch, retrying on exceptions'''
         global PENDING_REQUESTS
@@ -312,7 +311,7 @@ class StitchHandler: # pylint: disable=too-few-public-methods
 
         '''
 
-        stitch_url = self.determine_stitch_url(messages[0].stream)
+        stitch_url = determine_stitch_url(messages[0].stream)
         LOGGER.info("Sending batch with %d messages for table %s to %s",
                     len(messages), messages[0].stream, stitch_url)
         with TIMINGS.mode('serializing'):
@@ -650,15 +649,6 @@ def collect():
         conn.close()
     except: # pylint: disable=bare-except
         LOGGER.debug('Collection request failed')
-
-
-def use_batch_url(url):
-    '''Replace /import/push with /import/batch in URL'''
-    result = url
-    if url.endswith('/import/push'):
-        result = url.replace('/import/push', '/import/batch')
-    LOGGER.info('Using Stitch import URL %s', result)
-    return result
 
 
 def main_impl():

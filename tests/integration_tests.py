@@ -607,9 +607,6 @@ class StateEdgeCases(unittest.TestCase):
                           {"bookmarks":{"chicken_stream":{"id": 1 }},
                            'currently_syncing' : 'chicken_stream'})
 
-
-#TODO: test for unparsable result.body. should throw stitchClientResponseError(response.status, "unable to parse response body as json")
-
 if __name__== "__main__":
     test1 = StateEdgeCases()
     test1.setUp()
