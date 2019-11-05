@@ -63,7 +63,7 @@ PENDING_REQUESTS = []
 # The event loop thread will write to it after each aiohttp request completes
 SEND_EXCEPTION = None
 
-CONFIG={}
+CONFIG = {}
 
 def start_loop(loop):
     asyncio.set_event_loop(loop)
@@ -166,11 +166,11 @@ def parse_config(config_location):
 
     if not CONFIG['batch_size_preferences']['full_table_streams']:
         CONFIG['batch_size_preferences']['full_table_streams'] = []
-    LOGGER.info('Using batch_size_prefernces of %s', CONFIG['batch_size_preferences'] )
+    LOGGER.info('Using batch_size_prefernces of %s', CONFIG['batch_size_preferences'])
 
     if not CONFIG['turbo_boost_factor']:
         CONFIG['turbo_boost_factor'] = 1
-    LOGGER.info('Using turbo_boost_factor of %s', CONFIG['turbo_boost_factor'] )
+    LOGGER.info('Using turbo_boost_factor of %s', CONFIG['turbo_boost_factor'])
 
     if not CONFIG['small_batch_url']:
         raise Exception('Configuration is missing required "small_batch_url"')
@@ -235,24 +235,24 @@ class StitchHandler: # pylint: disable=too-few-public-methods
             'Content-Type': 'application/json'
         }
 
-    def determine_stitch_url(self, stream_name):
+    def determine_stitch_url(self, stream_name): #pylint: disable=no-self-use
         batch_size_prefs = CONFIG.get('batch_size_preferences')
-        if (stream_name in batch_size_prefs.get('full_table_streams')):
+        if stream_name in batch_size_prefs.get('full_table_streams'):
             return CONFIG.get('big_batch_url')
 
         #eg. platform.heap requires S3 because it is fulltable data
-        if (batch_size_prefs.get('batch_size_preference') == 'bigbatch'):
+        if batch_size_prefs.get('batch_size_preference') == 'bigbatch':
             return CONFIG.get('big_batch_url')
 
-        if (batch_size_prefs.get('batch_size_preference') == 'smallbatch'):
+        if batch_size_prefs.get('batch_size_preference') == 'smallbatch':
             return CONFIG.get('small_batch_url')
 
         #NB> not implemented yet
-        if (batch_size_prefs.get('user_batch_size_preference') == 'bigbatch'):
+        if batch_size_prefs.get('user_batch_size_preference') == 'bigbatch':
             return CONFIG.get('big_batch_url')
 
         #NB> not implemented yet
-        if (batch_size_prefs.get('user_batch_size_preference') == 'smallbatch'):
+        if batch_size_prefs.get('user_batch_size_preference') == 'smallbatch':
             return CONFIG.get('small_batch_url')
 
         return CONFIG.get('small_batch_url')
