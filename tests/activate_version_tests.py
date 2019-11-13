@@ -70,11 +70,8 @@ class ActivateVersion(unittest.TestCase):
         self.first_flush_error = None
         self.second_flush_error = None
 
-        handler = StitchHandler(token,
-                                DEFAULT_STITCH_URL,
-                                target_stitch.DEFAULT_MAX_BATCH_BYTES,
-                                2,
-                                10)
+        handler = StitchHandler(target_stitch.DEFAULT_MAX_BATCH_BYTES, 2)
+
         self.out = io.StringIO()
         self.target_stitch = target_stitch.TargetStitch(
             [handler], self.out, 4000000, 2, 100000)
@@ -88,6 +85,20 @@ class ActivateVersion(unittest.TestCase):
         self.flushed_state_count = 0
         StitchHandler.flush_states = self.fake_flush_states
 
+        target_stitch.CONFIG = {
+            'token': "some-token",
+            'client_id': "some-client",
+            'disable_collection': True,
+            'connection_ns': "some-ns",
+            'batch_size_preferences' : {
+                'full_table_streams' : [],
+                'batch_size_preference': None,
+                'user_batch_size_preference': None,
+            },
+            'turbo_boost_factor' : 10,
+            'small_batch_url' : "http://small-batch",
+            'big_batch_url' : "http://big-batch",
+        }
 
     def test_activate_version_finishes_pending_requests(self):
         target_stitch.OUR_SESSION = FakeSession(mock_out_of_order_all_200)

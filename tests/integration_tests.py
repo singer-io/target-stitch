@@ -50,11 +50,8 @@ class FakeSession:
 class AsyncSerializeFloats(unittest.TestCase):
     def setUp(self):
         token = None
-        handler = StitchHandler(token,
-                                DEFAULT_STITCH_URL,
-                                target_stitch.DEFAULT_MAX_BATCH_BYTES,
-                                2,
-                                10)
+        handler = StitchHandler(target_stitch.DEFAULT_MAX_BATCH_BYTES, 2)
+
         self.out = io.StringIO()
         self.target_stitch = target_stitch.TargetStitch(
             [handler], self.out, 4000000, 2, 100000)
@@ -69,6 +66,20 @@ class AsyncSerializeFloats(unittest.TestCase):
                     target_stitch.SEND_EXCEPTION,
                     target_stitch.PENDING_REQUESTS)
 
+        target_stitch.CONFIG = {
+            'token': "some-token",
+            'client_id': "some-client",
+            'disable_collection': True,
+            'connection_ns': "some-ns",
+            'batch_size_preferences' : {
+                'full_table_streams' : [],
+                'batch_size_preference': None,
+                'user_batch_size_preference': None,
+            },
+            'turbo_boost_factor' : 10,
+            'small_batch_url' : "http://small-batch",
+            'big_batch_url' : "http://big-batch",
+        }
 
 
     def test_serialize_floats(self):
@@ -117,11 +128,8 @@ class AsyncSerializeFloats(unittest.TestCase):
 class AsyncPushToGate(unittest.TestCase):
     def setUp(self):
         token = None
-        handler = StitchHandler(token,
-                                DEFAULT_STITCH_URL,
-                                target_stitch.DEFAULT_MAX_BATCH_BYTES,
-                                2,
-                                10)
+        handler = StitchHandler(target_stitch.DEFAULT_MAX_BATCH_BYTES, 2)
+
         self.og_check_send_exception = target_stitch.check_send_exception
         self.out = io.StringIO()
         self.target_stitch = target_stitch.TargetStitch(
@@ -143,6 +151,21 @@ class AsyncPushToGate(unittest.TestCase):
         LOGGER.info("cleaning SEND_EXCEPTIONS: %s AND PENDING_REQUESTS: %s",
                     target_stitch.SEND_EXCEPTION,
                     target_stitch.PENDING_REQUESTS)
+
+        target_stitch.CONFIG ={
+            'token': "some-token",
+            'client_id': "some-client",
+            'disable_collection': True,
+            'connection_ns': "some-ns",
+            'batch_size_preferences' : {
+                'full_table_streams' : [],
+                'batch_size_preference': None,
+                'user_batch_size_preference': None,
+            },
+            'turbo_boost_factor' : 10,
+            'small_batch_url' : "http://small-batch",
+            'big_batch_url' : "http://big-batch",
+        }
 
     # 2 requests
     # both with state
@@ -458,11 +481,7 @@ class AsyncPushToGate(unittest.TestCase):
 class StateOnly(unittest.TestCase):
     def setUp(self):
         token = None
-        handler = StitchHandler(token,
-                                DEFAULT_STITCH_URL,
-                                target_stitch.DEFAULT_MAX_BATCH_BYTES,
-                                2,
-                                10)
+        handler = StitchHandler(target_stitch.DEFAULT_MAX_BATCH_BYTES, 2)
         self.og_check_send_exception = target_stitch.check_send_exception
         self.out = io.StringIO()
         self.target_stitch = target_stitch.TargetStitch(
@@ -479,6 +498,20 @@ class StateOnly(unittest.TestCase):
         LOGGER.info("cleaning SEND_EXCEPTIONS: %s AND PENDING_REQUESTS: %s",
                     target_stitch.SEND_EXCEPTION,
                     target_stitch.PENDING_REQUESTS)
+        target_stitch.CONFIG ={
+            'token': "some-token",
+            'client_id': "some-client",
+            'disable_collection': True,
+            'connection_ns': "some-ns",
+            'batch_size_preferences' : {
+                'full_table_streams' : [],
+                'batch_size_preference': None,
+                'user_batch_size_preference': None,
+            },
+            'turbo_boost_factor' : 10,
+            'small_batch_url' : "http://small-batch",
+            'big_batch_url' : "http://big-batch",
+        }
 
     def test_state_only(self):
         target_stitch.OUR_SESSION = FakeSession(mock_in_order_all_200)
@@ -495,11 +528,7 @@ class StateOnly(unittest.TestCase):
 class StateEdgeCases(unittest.TestCase):
     def setUp(self):
         token = None
-        handler = StitchHandler(token,
-                                DEFAULT_STITCH_URL,
-                                target_stitch.DEFAULT_MAX_BATCH_BYTES,
-                                2,
-                                10)
+        handler = StitchHandler(target_stitch.DEFAULT_MAX_BATCH_BYTES, 2)
         self.out = io.StringIO()
         self.target_stitch = target_stitch.TargetStitch(
             [handler], self.out, 4000000, 2, 100000)
@@ -513,6 +542,22 @@ class StateEdgeCases(unittest.TestCase):
         LOGGER.info("cleaning SEND_EXCEPTIONS: %s AND PENDING_REQUESTS: %s",
                     target_stitch.SEND_EXCEPTION,
                     target_stitch.PENDING_REQUESTS)
+
+        target_stitch.CONFIG ={
+            'token': "some-token",
+            'client_id': "some-client",
+            'disable_collection': True,
+            'connection_ns': "some-ns",
+            'batch_size_preferences' : {
+                'full_table_streams' : [],
+                'batch_size_preference': None,
+                'user_batch_size_preference': None,
+            },
+            'turbo_boost_factor' : 10,
+            'small_batch_url' : "http://small-batch",
+            'big_batch_url' : "http://big-batch",
+        }
+
 
     def test_trailing_state_after_final_message(self):
         target_stitch.OUR_SESSION = FakeSession(mock_in_order_all_200)
@@ -562,11 +607,8 @@ class StateEdgeCases(unittest.TestCase):
                           {"bookmarks":{"chicken_stream":{"id": 1 }},
                            'currently_syncing' : 'chicken_stream'})
 
-
-#TODO: test for unparsable result.body. should throw stitchClientResponseError(response.status, "unable to parse response body as json")
-
 if __name__== "__main__":
-    test1 = AsyncPushToGate()
+    test1 = StateEdgeCases()
     test1.setUp()
-    test1.test_requests_out_of_order_second_errors()
+    test1.test_will_not_output_empty_state()
     # test1.test_requests_in_order()

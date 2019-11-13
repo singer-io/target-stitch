@@ -63,6 +63,8 @@ PENDING_REQUESTS = []
 # The event loop thread will write to it after each aiohttp request completes
 SEND_EXCEPTION = None
 
+CONFIG = {}
+
 def start_loop(loop):
     asyncio.set_event_loop(loop)
     global OUR_SESSION
@@ -147,16 +149,66 @@ def _log_backoff(details):
         'Error sending data to Stitch. Sleeping %d seconds before trying again: %s',
         details['wait'], exc)
 
+def parse_config(config_location):
+    global CONFIG
+    CONFIG = json.load(config_location)
+    if not CONFIG.get('token'):
+        raise Exception('Configuration is missing required "token" field')
+
+    if not CONFIG.get('client_id'):
+        raise Exception('Configuration is missing required "client_id"')
+
+    if not CONFIG.get('connection_ns'):
+        raise Exception('Configuration is missing required "connection_ns"')
+
+    if not isinstance(CONFIG['batch_size_preferences'], dict):
+        raise Exception('Configuration is requires batch_size_preferences dictionary')
+
+    if not CONFIG['batch_size_preferences']['full_table_streams']:
+        CONFIG['batch_size_preferences']['full_table_streams'] = []
+    LOGGER.info('Using batch_size_prefernces of %s', CONFIG['batch_size_preferences'])
+
+    if not CONFIG['turbo_boost_factor']:
+        CONFIG['turbo_boost_factor'] = 1
+    LOGGER.info('Using turbo_boost_factor of %s', CONFIG['turbo_boost_factor'])
+
+    if not CONFIG['small_batch_url']:
+        raise Exception('Configuration is missing required "small_batch_url"')
+
+    if not CONFIG['big_batch_url']:
+        raise Exception('Configuration is missing required "big_batch_url"')
+
+def determine_stitch_url(stream_name):
+    batch_size_prefs = CONFIG.get('batch_size_preferences')
+    if stream_name in batch_size_prefs.get('full_table_streams'):
+        return CONFIG.get('big_batch_url')
+
+    #eg. platform.heap requires S3 because it is fulltable data
+    if batch_size_prefs.get('batch_size_preference') == 'bigbatch':
+        return CONFIG.get('big_batch_url')
+
+    if batch_size_prefs.get('batch_size_preference') == 'smallbatch':
+        return CONFIG.get('small_batch_url')
+
+    #NB> not implemented yet
+    if batch_size_prefs.get('user_batch_size_preference') == 'bigbatch':
+        return CONFIG.get('big_batch_url')
+
+    #NB> not implemented yet
+    if batch_size_prefs.get('user_batch_size_preference') == 'smallbatch':
+        return CONFIG.get('small_batch_url')
+
+    return CONFIG.get('small_batch_url')
+
+
 
 class StitchHandler: # pylint: disable=too-few-public-methods
     '''Sends messages to Stitch.'''
 
-    def __init__(self, token, stitch_url, max_batch_bytes, max_batch_records, turbo_boost_factor=1):
-        self.token = token
-        self.stitch_url = stitch_url
+    def __init__(self, max_batch_bytes, max_batch_records):
+        self.token = CONFIG.get('token')
         self.max_batch_bytes = max_batch_bytes
         self.max_batch_records = max_batch_records
-        self.turbo_boost_factor = turbo_boost_factor
 
     @staticmethod
     #this happens in the event loop
@@ -204,14 +256,13 @@ class StitchHandler: # pylint: disable=too-few-public-methods
             'Content-Type': 'application/json'
         }
 
-    def send(self, data, contains_activate_version, state_writer, state):
+    def send(self, data, contains_activate_version, state_writer, state, stitch_url):
         '''Send the given data to Stitch, retrying on exceptions'''
         global PENDING_REQUESTS
         global SEND_EXCEPTION
 
         check_send_exception()
 
-        url = self.stitch_url
         headers = self.headers()
         verify_ssl = True
         if os.environ.get("TARGET_STITCH_SSL_VERIFY") == 'false':
@@ -224,16 +275,14 @@ class StitchHandler: # pylint: disable=too-few-public-methods
             LOGGER.info('Sending batch with ActivateVersion. Flushing PENDING_REQUESTS first')
             finish_requests()
 
-        if len(PENDING_REQUESTS) >= self.turbo_boost_factor:
+        if len(PENDING_REQUESTS) >= CONFIG.get('turbo_boost_factor'):
 
             #wait for to finish the first future before resuming the main thread
-            finish_requests(self.turbo_boost_factor - 1)
-
-
+            finish_requests(CONFIG.get('turbo_boost_factor') - 1)
 
         #NB> this schedules the task on the event loop thread.
         #    it will be executed at some point in the future
-        future = asyncio.run_coroutine_threadsafe(post_coroutine(url, headers, data, verify_ssl), new_loop)
+        future = asyncio.run_coroutine_threadsafe(post_coroutine(stitch_url, headers, data, verify_ssl), new_loop)
         next_pending_request = (future, state)
         PENDING_REQUESTS.append(next_pending_request)
         future.add_done_callback(functools.partial(self.flush_states, state_writer))
@@ -262,8 +311,9 @@ class StitchHandler: # pylint: disable=too-few-public-methods
 
         '''
 
+        stitch_url = determine_stitch_url(messages[0].stream)
         LOGGER.info("Sending batch with %d messages for table %s to %s",
-                    len(messages), messages[0].stream, self.stitch_url)
+                    len(messages), messages[0].stream, stitch_url)
         with TIMINGS.mode('serializing'):
             bodies = serialize(messages,
                                schema,
@@ -280,7 +330,7 @@ class StitchHandler: # pylint: disable=too-few-public-methods
                 if i + 1 == len(bodies):
                     flushable_state = state
 
-                self.send(body, contains_activate_version, state_writer, flushable_state)
+                self.send(body, contains_activate_version, state_writer, flushable_state, stitch_url)
 
 class LoggingHandler:  # pylint: disable=too-few-public-methods
     '''Logs records to a local output file.'''
@@ -601,20 +651,6 @@ def collect():
         LOGGER.debug('Collection request failed')
 
 
-def use_batch_url(url):
-    '''Replace /import/push with /import/batch in URL'''
-    result = url
-    if url.endswith('/import/push'):
-        result = url.replace('/import/push', '/import/batch')
-    LOGGER.info('Using Stitch import URL %s', result)
-    return result
-
-
-def get_turbo_boost_factor(config):
-    turbo_boost_factor = int(config.get('stitch_turbo_boost_factor', 1))
-    LOGGER.info('Using Turbo Boost Factor of %s', turbo_boost_factor)
-    return turbo_boost_factor
-
 def main_impl():
     '''We wrap this function in main() to add exception handling'''
     parser = argparse.ArgumentParser()
@@ -659,23 +695,15 @@ def main_impl():
     elif not args.config:
         parser.error("config file required if not in dry run mode")
     else:
-        config = json.load(args.config)
-        token = config.get('token')
-        stitch_url = use_batch_url(config.get('stitch_url', DEFAULT_STITCH_URL))
-        turbo_boost_factor = get_turbo_boost_factor(config)
-        if not token:
-            raise Exception('Configuration is missing required "token" field')
+        parse_config(args.config)
 
-        if not config.get('disable_collection'):
+        if not CONFIG.get('disable_collection'):
             LOGGER.info('Sending version information to stitchdata.com. ' +
                         'To disable sending anonymous usage data, set ' +
                         'the config parameter "disable_collection" to true')
             Thread(target=collect).start()
-        handlers.append(StitchHandler(token,
-                                      stitch_url,
-                                      args.max_batch_bytes,
-                                      args.max_batch_records,
-                                      turbo_boost_factor))
+        handlers.append(StitchHandler(args.max_batch_bytes,
+                                      args.max_batch_records))
 
     # queue = Queue(args.max_batch_records)
     reader = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')

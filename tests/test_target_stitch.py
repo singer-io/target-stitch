@@ -290,10 +290,48 @@ class TestSerialize(unittest.TestCase):
     def create_raw_record_message(self,raw_record):
         return '{"type": "RECORD", "stream": "test", "record": ' + raw_record + '}'
 
-class test_use_batch_url(unittest.TestCase):
+class TestDetermineStitchUrl(unittest.TestCase):
+    def test_full_table_stream(self):
+        big_batch_url = 'https://bigbatches.org'
+        small_batch_url = 'https://smallbatch.mil'
+        target_stitch.CONFIG = {'batch_size_preferences' :
+                                {'full_table_streams' : ['chickens'],
+                                 'batch_size_preference' : None,
+                                 'user_batch_size_preference' : None
+                                },
+                                'small_batch_url' : small_batch_url,
+                                'big_batch_url' : big_batch_url}
 
-    push_url = 'https://api.stitchdata.com/v2/import/push'
-    batch_url = 'https://api.stitchdata.com/v2/import/batch'
+        self.assertEqual(target_stitch.determine_stitch_url('chickens'), big_batch_url)
 
-    def test_change(self):
-        self.assertEqual(self.batch_url, target_stitch.use_batch_url(self.push_url))
+    def test_incremental_stream(self):
+        big_batch_url = 'https://bigbatches.org'
+        small_batch_url = 'https://smallbatch.mil'
+        target_stitch.CONFIG = {'batch_size_preferences' :
+                                {'full_table_streams' : [],
+                                 'batch_size_preference' : None,
+                                 'user_batch_size_preference' : None
+                                },
+                                'small_batch_url' : small_batch_url,
+                                'big_batch_url' : big_batch_url}
+
+        self.assertEqual(target_stitch.determine_stitch_url('chickens'), small_batch_url)
+
+    def test_big_batch_preference(self):
+        big_batch_url = 'https://bigbatches.org'
+        small_batch_url = 'https://smallbatch.mil'
+        target_stitch.CONFIG = {'batch_size_preferences' :
+                                {'full_table_streams' : [],
+                                 'batch_size_preference' : 'bigbatch',
+                                 'user_batch_size_preference' : None
+                                },
+                                'small_batch_url' : small_batch_url,
+                                'big_batch_url' : big_batch_url}
+
+        self.assertEqual(target_stitch.determine_stitch_url('chickens'), big_batch_url)
+
+
+if __name__== "__main__":
+    test1 = TestDetermineStitchUrl()
+    # test1.setUp()
+    test1.test_big_batch_preference()
