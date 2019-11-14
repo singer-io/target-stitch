@@ -158,24 +158,21 @@ def parse_config(config_location):
     if not CONFIG.get('client_id'):
         raise Exception('Configuration is missing required "client_id"')
 
-    if not CONFIG.get('connection_ns'):
-        raise Exception('Configuration is missing required "connection_ns"')
-
-    if not isinstance(CONFIG['batch_size_preferences'], dict):
+    if not isinstance(CONFIG.get('batch_size_preferences'), dict):
         raise Exception('Configuration is requires batch_size_preferences dictionary')
 
-    if not CONFIG['batch_size_preferences']['full_table_streams']:
+    if not CONFIG['batch_size_preferences'].get('full_table_streams'):
         CONFIG['batch_size_preferences']['full_table_streams'] = []
     LOGGER.info('Using batch_size_prefernces of %s', CONFIG['batch_size_preferences'])
 
-    if not CONFIG['turbo_boost_factor']:
+    if not CONFIG.get('turbo_boost_factor'):
         CONFIG['turbo_boost_factor'] = 1
     LOGGER.info('Using turbo_boost_factor of %s', CONFIG['turbo_boost_factor'])
 
-    if not CONFIG['small_batch_url']:
+    if not CONFIG.get('small_batch_url'):
         raise Exception('Configuration is missing required "small_batch_url"')
 
-    if not CONFIG['big_batch_url']:
+    if not CONFIG.get('big_batch_url'):
         raise Exception('Configuration is missing required "big_batch_url"')
 
 def determine_stitch_url(stream_name):

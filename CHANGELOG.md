@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.0.1
+  * Removes requirement for `connection_ns` property.
+
+## 3.0.0
+  * Adds new configuration properties - `small_batch_url`, `big_batch_url` and `batch_size_preferences` - for internal Stitch use.
+
 ## 2.0.7
   * Any exception in flush_state callback will set SEND_EXCEPTION resulting in the termination of the main thread and process.
 

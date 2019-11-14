@@ -22,10 +22,12 @@ Create config file to contain your Stitch client id and token:
 ```json
 {
   "client_id" : 1234,
-  "token" : "asdkjqbawsdciobasdpkjnqweobdclakjsdbcakbdsac"
+  "token" : "asdkjqbawsdciobasdpkjnqweobdclakjsdbcakbdsac",
+  "small_batch_url": "https://api.stitchdata.com/v2/import/batch",
+  "big_batch_url": "https://api.stitchdata.com/v2/import/batch",
+  "batch_size_preferences": {}
 }
 ```
-
 ```bash
 › tap-some-api | target-stitch --config config.json
 ```
