@@ -158,9 +158,6 @@ def parse_config(config_location):
     if not CONFIG.get('client_id'):
         raise Exception('Configuration is missing required "client_id"')
 
-    if not CONFIG.get('connection_ns'):
-        raise Exception('Configuration is missing required "connection_ns"')
-
     if not isinstance(CONFIG['batch_size_preferences'], dict):
         raise Exception('Configuration is requires batch_size_preferences dictionary')
 
