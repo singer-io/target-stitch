@@ -1,6 +1,6 @@
 # Changelog
 
-## 3.0.0
+## 3.0.1
   * Adds new configuration properties - `small_batch_url`, `big_batch_url` and `batch_size_preferences` - for internal Stitch use.
 
 ## 2.0.7

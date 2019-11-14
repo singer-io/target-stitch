@@ -1,1 +1,9 @@
-{"stitch_spool_service_host": "http://localhost:5032", "disable_collection": true, "client_id": 3, "stitch_url": "https://localhost:7010/v2/batch", "connection_ns": "tap_tester_postgres_full_table_replication", "stitch_spool_s3_bucket": "vm-spool", "token": "b16b8d8a929b2eea517b6104e501d60e2a0b094373ddaaf84ffed18c291c198c"}
+{
+"client_id": 3, 
+"stitch_url": "https://localhost:7010/v2/batch",  
+"token": "b16b8d8a929b2eea517b6104e501d60e2a0b094373ddaaf84ffed18c291c198c",
+"small_batch_url": "https://api.stitchdata.com/v2/import/batch",
+  "big_batch_url": "https://api.stitchdata.com/v2/import/batch",
+  "batch_size_preferences": {}
+
+}
