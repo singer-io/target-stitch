@@ -1,5 +1,8 @@
 # Changelog
 
+## 3.0.0
+  * Determines which `stitch_url` to use - `small_batch_url` or the new endpoint, `big_batch_url` - based on new properties in the config. 
+
 ## 2.0.7
   * Any exception in flush_state callback will set SEND_EXCEPTION resulting in the termination of the main thread and process.
 
