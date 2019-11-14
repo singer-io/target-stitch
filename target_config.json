@@ -1,9 +1,7 @@
 {
 "client_id": 3, 
-"stitch_url": "https://localhost:7010/v2/batch",  
-"token": "b16b8d8a929b2eea517b6104e501d60e2a0b094373ddaaf84ffed18c291c198c",
+"token": "some-token",
 "small_batch_url": "https://api.stitchdata.com/v2/import/batch",
-  "big_batch_url": "https://api.stitchdata.com/v2/import/batch",
-  "batch_size_preferences": {}
-
+"big_batch_url": "https://api.stitchdata.com/v2/import/batch",
+"batch_size_preferences": {}
 }
