@@ -1,7 +1,7 @@
 import unittest
 import singer
 import target_stitch
-from target_stitch import StitchHandler, TargetStitchException, DEFAULT_STITCH_URL, finish_requests
+from target_stitch import StitchHandler, TargetStitchException, finish_requests
 import io
 import os
 import json

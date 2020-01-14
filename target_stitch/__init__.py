@@ -44,8 +44,6 @@ LOGGER = singer.get_logger().getChild('target_stitch')
 # We use this to store schema and key properties from SCHEMA messages
 StreamMeta = namedtuple('StreamMeta', ['schema', 'key_properties', 'bookmark_properties'])
 
-DEFAULT_STITCH_URL = 'https://api.stitchdata.com/v2/import/batch'
-BIGBATCH_STITCH_URL = 'https://api.stitchdata.com/v2/import/bigbatch'
 BIGBATCH_MAX_BATCH_BYTES = 20000000
 DEFAULT_MAX_BATCH_BYTES = 4000000
 DEFAULT_MAX_BATCH_RECORDS = 20000
