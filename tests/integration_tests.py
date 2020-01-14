@@ -9,9 +9,29 @@ import asyncio
 import simplejson
 from decimal import Decimal
 try:
-    from tests.gate_mocks import mock_in_order_all_200, mock_out_of_order_all_200, mock_in_order_first_errors, mock_in_order_second_errors, mock_out_of_order_first_errors, mock_out_of_order_second_errors, mock_out_of_order_both_error, mock_in_order_both_error, mock_unparsable_response_body_200
+    from tests.gate_mocks import (
+        mock_in_order_all_200,
+        mock_out_of_order_all_200,
+        mock_in_order_first_errors,
+        mock_in_order_second_errors,
+        mock_out_of_order_first_errors,
+        mock_out_of_order_second_errors,
+        mock_out_of_order_both_error,
+        mock_in_order_both_error,
+        mock_unparsable_response_body_200,
+    )
 except ImportError:
-    from gate_mocks  import mock_in_order_all_200, mock_out_of_order_all_200, mock_in_order_first_errors, mock_in_order_second_errors, mock_out_of_order_first_errors, mock_out_of_order_second_errors, mock_out_of_order_both_error, mock_in_order_both_error, mock_unparsable_response_body_200
+    from gate_mocks import (
+        mock_in_order_all_200,
+        mock_out_of_order_all_200,
+        mock_in_order_first_errors,
+        mock_in_order_second_errors,
+        mock_out_of_order_first_errors,
+        mock_out_of_order_second_errors,
+        mock_out_of_order_both_error,
+        mock_in_order_both_error,
+        mock_unparsable_response_body_200,
+    )
 
 from nose.tools import nottest
 
@@ -38,12 +58,17 @@ class FakePost:
 class FakeSession:
     def __init__(self, makeFakeResponse):
         self.requests_sent = 0
+        self.urls = []
+        self.messages_sent = []
         self.bodies_sent = []
         self.makeFakeResponse = makeFakeResponse
 
     def post(self, url, *, data, **kwargs):
+        data_json = simplejson.loads(data)
+        self.messages_sent.append(data_json["messages"])
         self.requests_sent = self.requests_sent + 1
         self.bodies_sent.append(data)
+        self.urls.append(url)
         return FakePost(self.requests_sent, self.makeFakeResponse)
 
 
@@ -190,7 +215,22 @@ class AsyncPushToGate(unittest.TestCase):
         self.assertEqual( emitted_state[0], {'bookmarks': {'chicken_stream': {'id': 1}}})
         self.assertEqual( emitted_state[1], {'bookmarks': {'chicken_stream': {'id': 3}}})
 
+    def test_request_to_big_batch_for_large_record(self):
+        target_stitch.OUR_SESSION = FakeSession(mock_in_order_all_200)
+        self.target_stitch.max_batch_records = 4
+        self.target_stitch.handlers[0].max_batch_records = 4
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 1, "name": "M" * 5000000}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 2, "name": "Paul"}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 3, "name": "Harrsion"}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 4, "name": "Cathy"}}))
+        #will flush here after 4 records
 
+        self.target_stitch.consume(self.queue)
+        finish_requests()
+        self.assertEqual(target_stitch.OUR_SESSION.urls, [target_stitch.CONFIG["big_batch_url"],
+                                                          target_stitch.CONFIG["small_batch_url"]])
+        self.assertEqual(len(target_stitch.OUR_SESSION.messages_sent[0]), 1)
+        self.assertEqual(len(target_stitch.OUR_SESSION.messages_sent[1]), 3)
 
     # 2 requests
     # last SENT request has state

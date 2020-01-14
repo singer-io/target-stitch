@@ -250,9 +250,9 @@ class TestSerialize(unittest.TestCase):
         self.assertEqual(8, len(self.serialize_with_limit(385)))
 
     def test_raises_if_cant_stay_in_limit(self):
-        data = 'a' * 4000000
+        data = 'a' * 21000000
         message = RecordMessage(stream='colors', record=data)
-        with self.assertRaisesRegex(target_stitch.BatchTooLargeException, re.compile('the Stitch API limit of 4 Mb')):
+        with self.assertRaisesRegex(target_stitch.BatchTooLargeException, re.compile('the Stitch API limit of 20 Mb')):
             target_stitch.serialize([message], self.schema, self.key_names, self.bookmark_names, 4000000, target_stitch.DEFAULT_MAX_BATCH_RECORDS)
 
     def test_does_not_drop_records(self):
@@ -332,6 +332,6 @@ class TestDetermineStitchUrl(unittest.TestCase):
 
 
 if __name__== "__main__":
-    test1 = TestDetermineStitchUrl()
-    # test1.setUp()
-    test1.test_big_batch_preference()
+    test1 = TestSerialize()
+    test1.setUp()
+    test1.test_raises_if_cant_stay_in_limit()
