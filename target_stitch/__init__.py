@@ -39,13 +39,14 @@ import backoff
 import singer
 import ciso8601
 
-
 LOGGER = singer.get_logger().getChild('target_stitch')
 
 # We use this to store schema and key properties from SCHEMA messages
 StreamMeta = namedtuple('StreamMeta', ['schema', 'key_properties', 'bookmark_properties'])
 
 DEFAULT_STITCH_URL = 'https://api.stitchdata.com/v2/import/batch'
+BIGBATCH_STITCH_URL = 'https://api.stitchdata.com/v2/import/bigbatch'
+BIGBATCH_MAX_BATCH_BYTES = 20000000
 DEFAULT_MAX_BATCH_BYTES = 4000000
 DEFAULT_MAX_BATCH_RECORDS = 20000
 SEQUENCE_MULTIPLIER = 1000
@@ -265,6 +266,8 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         if os.environ.get("TARGET_STITCH_SSL_VERIFY") == 'false':
             verify_ssl = False
 
+        LOGGER.info("Sending batch of %d bytes to %s", len(data), stitch_url)
+
         #NB> before we send any activate_versions we must ensure that all PENDING_REQUETS complete.
         #this is to ensure ordering in the case of Full Table replication where the Activate Version,
         #must arrive AFTER all of the relevant data.
@@ -309,8 +312,7 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         '''
 
         stitch_url = determine_stitch_url(messages[0].stream)
-        LOGGER.info("Sending batch with %d messages for table %s to %s",
-                    len(messages), messages[0].stream, stitch_url)
+        LOGGER.info("Serializing batch with %d messages for table %s", len(messages), messages[0].stream)
         with TIMINGS.mode('serializing'):
             bodies = serialize(messages,
                                schema,
@@ -323,11 +325,15 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         for i, body in enumerate(bodies):
             with TIMINGS.mode('posting'):
                 LOGGER.debug('Request %d of %d is %d bytes', i + 1, len(bodies), len(body))
+                if len(body) > DEFAULT_MAX_BATCH_BYTES:
+                    stitch_url = CONFIG.get('big_batch_url')
+
                 flushable_state = None
                 if i + 1 == len(bodies):
                     flushable_state = state
 
                 self.send(body, contains_activate_version, state_writer, flushable_state, stitch_url)
+
 
 class LoggingHandler:  # pylint: disable=too-few-public-methods
     '''Logs records to a local output file.'''
@@ -481,9 +487,12 @@ def serialize(messages, schema, key_names, bookmark_names, max_bytes, max_record
         return [serialized]
 
     if len(messages) <= 1:
-        raise BatchTooLargeException(
-            "A single record is larger than the Stitch API limit of {} Mb".format(
-                max_bytes // 1000000))
+        if len(serialized) < BIGBATCH_MAX_BATCH_BYTES:
+            return [serialized]
+        else:
+            raise BatchTooLargeException(
+                "A single record is larger than the Stitch API limit of {} Mb".format(
+                    BIGBATCH_MAX_BATCH_BYTES // 1000000))
 
     pivot = len(messages) // 2
     l_half = serialize(messages[:pivot], schema, key_names, bookmark_names, max_bytes, max_records)
