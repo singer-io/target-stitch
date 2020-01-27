@@ -323,7 +323,7 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         for i, body in enumerate(bodies):
             with TIMINGS.mode('posting'):
                 LOGGER.debug('Request %d of %d is %d bytes', i + 1, len(bodies), len(body))
-                if len(body) > DEFAULT_MAX_BATCH_BYTES:
+                if len(body) > DEFAULT_MAX_BATCH_BYTES and CONFIG.get('destination_type') is not 'redshift':
                     stitch_url = CONFIG.get('big_batch_url')
 
                 flushable_state = None
