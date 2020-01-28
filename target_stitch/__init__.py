@@ -485,11 +485,17 @@ def serialize(messages, schema, key_names, bookmark_names, max_bytes, max_record
         return [serialized]
 
     if len(messages) <= 1:
-        if len(serialized) < BIGBATCH_MAX_BATCH_BYTES:
-            return [serialized]
-        raise BatchTooLargeException(
-            "A single record is larger than the Stitch API limit of {} Mb".format(
-                BIGBATCH_MAX_BATCH_BYTES // 1000000))
+        if len(serialized) >= BIGBATCH_MAX_BATCH_BYTES:
+            raise BatchTooLargeException(
+                "A single record is larger than the Stitch API limit of {} Mb".format(
+                    BIGBATCH_MAX_BATCH_BYTES // 1000000))
+
+        if CONFIG.get('destination_type') == 'redshift'
+            raise BatchTooLargeException(
+                "A single record is larger than the Stitch API limit of {} Mb".format(
+                    DEFAULT_MAX_BATCH_BYTES // 1000000))
+
+        return [serialized]
 
 
     pivot = len(messages) // 2
