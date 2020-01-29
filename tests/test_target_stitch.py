@@ -208,6 +208,13 @@ class TestTargetStitch(unittest.TestCase):
         self.assertEqual(1, batches[0]['messages'][0].version)
         self.assertEqual(2, batches[1]['messages'][0].version)
 
+EXPECTED_BATCH_TOO_LARGE_MESSAGE = """\
+A single record is larger than the Stitch API limit of 200 Mb
+The 5 largest fields are:
+        a                                       20000009 bytes
+        b                                       20000009 bytes"""
+
+
 class TestSerialize(unittest.TestCase):
 
     def setUp(self):
@@ -251,8 +258,9 @@ class TestSerialize(unittest.TestCase):
 
     def test_raises_if_cant_stay_in_limit(self):
         data = 'a' * 21000000
+        data = json.dumps({"a": "a" * 20000000, "b": "b" * 20000000})
         message = RecordMessage(stream='colors', record=data)
-        with self.assertRaisesRegex(target_stitch.BatchTooLargeException, re.compile('the Stitch API limit of 20 Mb')):
+        with self.assertRaises(target_stitch.BatchTooLargeException, msg=EXPECTED_BATCH_TOO_LARGE_MESSAGE):
             target_stitch.serialize([message], self.schema, self.key_names, self.bookmark_names, 4000000, target_stitch.DEFAULT_MAX_BATCH_RECORDS)
 
     def test_does_not_drop_records(self):

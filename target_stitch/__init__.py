@@ -142,9 +142,9 @@ class BatchTooLargeException(TargetStitchException):
     '''Exception for when the records and schema are so large that we can't
     create a batch with even one record.'''
 
-    def __init__(self, record, max_size):
+    def __init__(self, message, max_size):
         sizes = []
-        for k, v in record.items():
+        for k, v in json.loads(message.record).items():
             b = len(simplejson.dumps({k: v}))
             sizes.append([k, b])
 
@@ -155,7 +155,7 @@ class BatchTooLargeException(TargetStitchException):
         msg += "The 5 largest fields are:\n"
         msg += "\n".join(size_msgs)
 
-        TargetStitchException.__init__(self, msg.format(max_size // 100000))
+        TargetStitchException.__init__(self, msg.format(max_size // 1000000))
 
 def _log_backoff(details):
     (_, exc, _) = sys.exc_info()
