@@ -142,6 +142,21 @@ class BatchTooLargeException(TargetStitchException):
     '''Exception for when the records and schema are so large that we can't
     create a batch with even one record.'''
 
+    def __init__(self, record, max_size):
+        sizes = []
+        for k, v in record.items():
+            b = len(simplejson.dumps({k: v}))
+            sizes.append([k, b])
+
+        sizes.sort(key=lambda x: x[1])
+        size_msgs = ["\t{:<32}{:>16} bytes".format(k, b) for k, b in sizes[::-1][:5]]
+
+        msg = "A single record is larger than the Stitch API limit of {} Mb\n"
+        msg += "The 5 largest fields are:\n"
+        msg += "\n".join(size_msgs)
+
+        TargetStitchException.__init__(self, msg.format(max_size // 100000))
+
 def _log_backoff(details):
     (_, exc, _) = sys.exc_info()
     LOGGER.info(
@@ -487,10 +502,7 @@ def serialize(messages, schema, key_names, bookmark_names, max_bytes, max_record
     if len(messages) <= 1:
         if len(serialized) < BIGBATCH_MAX_BATCH_BYTES:
             return [serialized]
-        raise BatchTooLargeException(
-            "A single record is larger than the Stitch API limit of {} Mb".format(
-                BIGBATCH_MAX_BATCH_BYTES // 1000000))
-
+        raise BatchTooLargeException(messages[0], BIGBATCH_MAX_BATCH_BYTES)
 
     pivot = len(messages) // 2
     l_half = serialize(messages[:pivot], schema, key_names, bookmark_names, max_bytes, max_records)
