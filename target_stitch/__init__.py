@@ -166,7 +166,9 @@ def parse_config(config_location):
 
     if not CONFIG.get('turbo_boost_factor'):
         CONFIG['turbo_boost_factor'] = 1
-    LOGGER.info('Using turbo_boost_factor of %s', CONFIG['turbo_boost_factor'])
+
+    if CONFIG['turbo_boost_factor'] != 5:
+        LOGGER.info('Using turbo_boost_factor of %s', CONFIG['turbo_boost_factor'])
 
     if not CONFIG.get('small_batch_url'):
         raise Exception('Configuration is missing required "small_batch_url"')
