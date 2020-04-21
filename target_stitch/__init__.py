@@ -162,7 +162,7 @@ def parse_config(config_location):
 
     if not CONFIG['batch_size_preferences'].get('full_table_streams'):
         CONFIG['batch_size_preferences']['full_table_streams'] = []
-    LOGGER.info('Using batch_size_prefernces of %s', CONFIG['batch_size_preferences'])
+    LOGGER.info('Using batch_size_preferences of %s', CONFIG['batch_size_preferences'])
 
     if not CONFIG.get('turbo_boost_factor'):
         CONFIG['turbo_boost_factor'] = 1
