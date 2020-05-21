@@ -647,6 +647,90 @@ class StateEdgeCases(unittest.TestCase):
                           {"bookmarks":{"chicken_stream":{"id": 1 }},
                            'currently_syncing' : 'chicken_stream'})
 
+class SingleRecordBatches(unittest.TestCase):
+    def setUp(self):
+        self.maxDiff = None
+        token = None
+        handler = StitchHandler(target_stitch.DEFAULT_MAX_BATCH_BYTES, 3)
+
+        self.og_check_send_exception = target_stitch.check_send_exception
+        self.out = io.StringIO()
+        self.target_stitch = target_stitch.TargetStitch(
+            [handler], self.out, 4000000, 2, 100000)
+        self.queue = [json.dumps({"type": "SCHEMA", "stream": "chicken_stream",
+                                  "key_properties": ["id"],
+                                  "schema": {"type": "object",
+                                             "properties": {"id": {"type": "integer"},
+                                                            "name": {"type": "string"}}}}),
+                      json.dumps({"type": "SCHEMA", "stream": "zebra_stream",
+                                  "key_properties": ["id"],
+                                  "schema": {"type": "object",
+                                             "properties": {"id": {"type": "integer"},
+                                                            "name": {"type": "string"}}}})]
+
+        target_stitch.SEND_EXCEPTION = None
+        for f,s in target_stitch.PENDING_REQUESTS:
+            try:
+                f.cancel()
+            except:
+                pass
+
+        target_stitch.PENDING_REQUESTS = []
+        LOGGER.info("cleaning SEND_EXCEPTIONS: %s AND PENDING_REQUESTS: %s",
+                    target_stitch.SEND_EXCEPTION,
+                    target_stitch.PENDING_REQUESTS)
+
+        target_stitch.CONFIG ={
+            'token': "some-token",
+            'client_id': "some-client",
+            'disable_collection': True,
+            'connection_ns': "some-ns",
+            'batch_size_preferences' : {
+                'full_table_streams' : [],
+                'batch_size_preference': None,
+                'user_batch_size_preference': None,
+            },
+            'turbo_boost_factor' : 10,
+            'small_batch_url' : "http://small-batch",
+            'big_batch_url' : "http://big-batch",
+        }
+
+    def test_single_record_batches_dont_exist(self):
+        # Tests that the target will not emit single record batches if
+        # streams alternate rapidly due to this increasing the chance for
+        # duplicate sequence numbers.
+        target_stitch.OUR_SESSION = FakeSession(mock_in_order_all_200)
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 1, "name": "Mike"}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "zebra_stream", "record": {"id": 2, "name": "Paul"}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 3, "name": "Harrsion"}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "zebra_stream", "record": {"id": 4, "name": "Cathy"}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 5, "name": "Dan"}}))
+        # Should only flush here
+
+        self.target_stitch.consume(self.queue)
+        finish_requests()
+
+        # Sorted by length
+        expected_messages = [[{'action': 'upsert',
+                               'data': {'id': 2, 'name': 'Paul'}},
+                              {'action': 'upsert',
+                               'data': {'id': 4, 'name': 'Cathy'}}],
+                              [{'action': 'upsert',
+                                'data': {'id': 1, 'name': 'Mike'}},
+                               {'action': 'upsert',
+                                'data': {'id': 3, 'name': 'Harrsion'}},
+                               {'action': 'upsert',
+                                'data': {'id': 5, 'name': 'Dan'}}]]
+
+        # Should be broken into only 2 batches
+        self.assertEqual(len(target_stitch.OUR_SESSION.messages_sent), 2)
+
+        # Sort by length and remove sequence number to compare directly
+        actual_messages = [[{key: m[key] for key in ["action","data"]} for m in ms]
+                           for ms in sorted(target_stitch.OUR_SESSION.messages_sent, key=lambda ms: len(ms))]
+        self.assertEqual(actual_messages, expected_messages)
+
+
 if __name__== "__main__":
     test1 = StateEdgeCases()
     test1.setUp()
