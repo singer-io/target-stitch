@@ -600,6 +600,10 @@ class TargetStitch:
 
         elif isinstance(message, (singer.RecordMessage, singer.ActivateVersionMessage)):
             current_stream = message.stream
+            if self.messages[current_stream] and (
+                    message.version != self.messages[current_stream][0].version):
+                self.flush()
+
             self.messages[current_stream].append(message)
             self.buffer_size_bytes += len(line)
             if isinstance(message, singer.ActivateVersionMessage):
