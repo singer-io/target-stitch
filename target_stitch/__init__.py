@@ -544,23 +544,28 @@ class TargetStitch:
     def flush_stream(self, messages):
         '''Send all the buffered messages to Stitch.'''
 
-        if messages:
-            stream = messages[0].stream
-            stream_meta = self.stream_meta[stream]
-            for handler in self.handlers:
-                handler.handle_batch(messages,
-                                     self.contains_activate_version.get(stream, False),
-                                     stream_meta.schema,
-                                     stream_meta.key_properties,
-                                     stream_meta.bookmark_properties,
-                                     self.state_writer,
-                                     self.state)
+        stream = messages[0].stream
+        stream_meta = self.stream_meta[stream]
+        for handler in self.handlers:
+            handler.handle_batch(messages,
+                                 self.contains_activate_version.get(stream, False),
+                                 stream_meta.schema,
+                                 stream_meta.key_properties,
+                                 stream_meta.bookmark_properties,
+                                 self.state_writer,
+                                 self.state)
 
-            self.time_last_batch_sent = time.time()
-            self.contains_activate_version[stream] = False
-            self.state = None
-            self.buffer_size_bytes = 0
+        self.time_last_batch_sent = time.time()
+        self.contains_activate_version[stream] = False
+        self.state = None
+        self.buffer_size_bytes = 0
 
+
+    def flush(self):
+        if sum([len(ms) for ms in self.messages.values()]) > 0:
+            for messages in self.messages.values():
+                self.flush_stream(messages)
+            self.messages = {k: [] for k in self.messages.keys()}
         # NB> State is usually handled above but in the case there are no messages
         # we still want to ensure state is emitted.
         elif self.state:
@@ -569,10 +574,6 @@ class TargetStitch:
             self.state = None
             TIMINGS.log_timings()
 
-    def flush(self):
-        for messages in self.messages.values():
-            self.flush_stream(messages)
-        self.messages = {k: [] for k in self.messages.keys()}
 
 
     def handle_line(self, line):
