@@ -514,8 +514,8 @@ class TargetStitch:
                  max_batch_bytes,
                  max_batch_records,
                  batch_delay_seconds):
-        self.messages = []
-        self.contains_activate_version = False
+        self.messages = {}
+        self.contains_activate_version = {}
         self.buffer_size_bytes = 0
         self.state = None
 
@@ -541,14 +541,15 @@ class TargetStitch:
 
 
 
-    def flush(self):
+    def flush_stream(self, messages):
         '''Send all the buffered messages to Stitch.'''
 
-        if self.messages:
-            stream_meta = self.stream_meta[self.messages[0].stream]
+        if messages:
+            stream = messages[0].stream
+            stream_meta = self.stream_meta[stream]
             for handler in self.handlers:
-                handler.handle_batch(self.messages,
-                                     self.contains_activate_version,
+                handler.handle_batch(messages,
+                                     self.contains_activate_version.get(stream, False),
                                      stream_meta.schema,
                                      stream_meta.key_properties,
                                      stream_meta.bookmark_properties,
@@ -556,8 +557,7 @@ class TargetStitch:
                                      self.state)
 
             self.time_last_batch_sent = time.time()
-            self.messages = []
-            self.contains_activate_version = False
+            self.contains_activate_version[stream] = False
             self.state = None
             self.buffer_size_bytes = 0
 
@@ -568,6 +568,11 @@ class TargetStitch:
                 handler.handle_state_only(self.state_writer, self.state)
             self.state = None
             TIMINGS.log_timings()
+
+    def flush(self):
+        for messages in self.messages.values():
+            self.flush_stream(messages)
+        self.messages = {k: [] for k in self.messages.keys()}
 
 
     def handle_line(self, line):
@@ -586,24 +591,22 @@ class TargetStitch:
         if isinstance(message, singer.SchemaMessage):
             self.flush()
 
+            if message.stream not in self.messages:
+                self.messages[message.stream] = []
             self.stream_meta[message.stream] = StreamMeta(
                 message.schema,
                 message.key_properties,
                 message.bookmark_properties)
 
         elif isinstance(message, (singer.RecordMessage, singer.ActivateVersionMessage)):
-            if self.messages and (
-                    message.stream != self.messages[0].stream or
-                    message.version != self.messages[0].version):
-                self.flush()
-
-            self.messages.append(message)
+            current_stream = message.stream
+            self.messages[current_stream].append(message)
             self.buffer_size_bytes += len(line)
             if isinstance(message, singer.ActivateVersionMessage):
-                self.contains_activate_version = True
+                self.contains_activate_version[current_stream] = True
 
             num_bytes = self.buffer_size_bytes
-            num_messages = len(self.messages)
+            num_messages = len(self.messages[current_stream])
             num_seconds = time.time() - self.time_last_batch_sent
 
             enough_bytes = num_bytes >= self.max_batch_bytes
