@@ -10,6 +10,7 @@ import jsonschema
 import simplejson
 import decimal
 import re
+import time
 
 from decimal import Decimal
 from jsonschema import ValidationError, Draft4Validator, validators, FormatChecker
@@ -329,6 +330,84 @@ class TestDetermineStitchUrl(unittest.TestCase):
                                 'big_batch_url' : big_batch_url}
 
         self.assertEqual(target_stitch.determine_stitch_url('chickens'), big_batch_url)
+
+class TestSequenceNumbers(unittest.TestCase):
+    def setUp(self):
+        # NB: The algorithm at time of writing is: (str(ms_timestamp * 1000) + message_num.zfill(len(str(10*20000))))
+        # - 20000 being the DEFAULT_MAX_BATCH_RECORDS
+        # - This should be increased/decreased with care to prevent downstream issues
+        self.STANDARD_SEQ_LENGTH = 19
+
+    def test_generate_sequence_normal_batch(self):
+        # Call with a sleep, to simulate the normal case (no ms collisions)
+        seq1 = target_stitch.generate_sequence(0,target_stitch.DEFAULT_MAX_BATCH_RECORDS, use_nanoseconds=False)
+        time.sleep(0.1)
+        seq2 = target_stitch.generate_sequence(10,target_stitch.DEFAULT_MAX_BATCH_RECORDS, use_nanoseconds=False)
+        time.sleep(0.1)
+        seq3 = target_stitch.generate_sequence(999,target_stitch.DEFAULT_MAX_BATCH_RECORDS, use_nanoseconds=False)
+        time.sleep(0.1)
+
+        generated_seqs = [seq1,seq2,seq3]
+        # Assert number's width for downstream
+        [self.assertEqual(len(str(s)), self.STANDARD_SEQ_LENGTH) for s in generated_seqs]
+        # Assert they are all at least increasing
+        self.assertEqual(generated_seqs, sorted(generated_seqs))
+        # Assert no collisions
+        self.assertEqual(len(generated_seqs), len(set(generated_seqs)))
+
+    def test_generate_sequence_single_record_batches(self):
+        # Call without sleep and same message_num to create collisions reliably
+        # This is the situation where multiple single record batches get cut in succession
+        seq1 = target_stitch.generate_sequence(0,target_stitch.DEFAULT_MAX_BATCH_RECORDS, use_nanoseconds=True)
+        seq2 = target_stitch.generate_sequence(0,target_stitch.DEFAULT_MAX_BATCH_RECORDS, use_nanoseconds=True)
+        seq3 = target_stitch.generate_sequence(0,target_stitch.DEFAULT_MAX_BATCH_RECORDS, use_nanoseconds=True)
+
+        generated_seqs = [seq1,seq2,seq3]
+
+        # Assert number's width for downstream
+        [self.assertEqual(len(str(s)), self.STANDARD_SEQ_LENGTH) for s in generated_seqs]
+        # Assert they are all at least increasing
+        self.assertEqual(generated_seqs, sorted(generated_seqs))
+        # Assert no collisions
+        self.assertEqual(len(generated_seqs), len(set(generated_seqs)))
+
+    def test_generate_sequence_max_batch(self):
+        # Call with an overshot max batch to ensure no duplication
+        # - The target can consume more than max_batch before cutting a batch
+        # - It should tolerate an order of magnitude greater records without repeat or extending the width
+        max_batch = range(target_stitch.DEFAULT_MAX_BATCH_RECORDS * 10)
+
+        generated_seqs = [target_stitch.generate_sequence(i,target_stitch.DEFAULT_MAX_BATCH_RECORDS, use_nanoseconds=False)
+                          for i in max_batch]
+
+        # Assert number's width for downstream
+        [self.assertEqual(len(str(s)), self.STANDARD_SEQ_LENGTH) for s in generated_seqs]
+        # Assert they are all at least increasing
+        self.assertEqual(generated_seqs, sorted(generated_seqs))
+        # Assert no collisions
+        self.assertEqual(len(generated_seqs), len(set(generated_seqs)))
+
+
+    def test_generate_sequence_mixed_case(self):
+        # Call with varying lengths of batches to ensure the widths mix
+        regular_batch = [(i,target_stitch.DEFAULT_MAX_BATCH_RECORDS,False) for i in range(100)]
+        single_record_batch = [(0,target_stitch.DEFAULT_MAX_BATCH_RECORDS,True)]
+
+        test_case = (single_record_batch +
+                     regular_batch +
+                     single_record_batch +
+                     single_record_batch +
+                     single_record_batch +
+                     regular_batch +
+                     single_record_batch)
+        generated_seqs = [target_stitch.generate_sequence(*values) for values in test_case]
+
+        # Assert number's width for downstream
+        [self.assertEqual(len(str(s)), self.STANDARD_SEQ_LENGTH) for s in generated_seqs]
+        # Assert they are all at least increasing
+        self.assertEqual(generated_seqs, sorted(generated_seqs))
+        # Assert no collisions
+        self.assertEqual(len(generated_seqs), len(set(generated_seqs)))
 
 
 if __name__== "__main__":

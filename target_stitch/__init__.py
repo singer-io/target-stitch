@@ -47,7 +47,8 @@ StreamMeta = namedtuple('StreamMeta', ['schema', 'key_properties', 'bookmark_pro
 BIGBATCH_MAX_BATCH_BYTES = 20000000
 DEFAULT_MAX_BATCH_BYTES = 4000000
 DEFAULT_MAX_BATCH_RECORDS = 20000
-SEQUENCE_MULTIPLIER = 1000
+MILLISECOND_SEQUENCE_MULTIPLIER = 1000
+NANOSECOND_SEQUENCE_MULTIPLIER = 1000000
 
 # This is our singleton aiohttp session
 OUR_SESSION = None
@@ -421,10 +422,10 @@ class ValidatingHandler: # pylint: disable=too-few-public-methods
             state_writer.write("{}\n".format(line))
             state_writer.flush()
 
-def generate_sequence(message_num, max_records):
+def generate_sequence(message_num, max_records, use_nanoseconds=False):
     '''Generates a unique sequence number based on the current time millis
        with a zero-padded message number based on the magnitude of max_records.'''
-    sequence_base = str(int(time.time() * SEQUENCE_MULTIPLIER))
+    sequence_base = str(int(time.time() * MILLISECOND_SEQUENCE_MULTIPLIER))
 
     # add an extra order of magnitude to account for the fact that we can
     # actually accept more than the max record count
@@ -442,12 +443,13 @@ def serialize(messages, schema, key_names, bookmark_names, max_bytes, max_record
 
     '''
     serialized_messages = []
+    use_nanoseconds = len(messages) == 1 # To prevent collisions with single record batches
     for idx, message in enumerate(messages):
         if isinstance(message, singer.RecordMessage):
             record_message = {
                 'action': 'upsert',
                 'data': message.record,
-                'sequence': generate_sequence(idx, max_records)
+                'sequence': generate_sequence(idx, max_records, use_nanoseconds)
             }
 
             if message.time_extracted:
@@ -458,7 +460,7 @@ def serialize(messages, schema, key_names, bookmark_names, max_bytes, max_record
         elif isinstance(message, singer.ActivateVersionMessage):
             serialized_messages.append({
                 'action': 'activate_version',
-                'sequence': generate_sequence(idx, max_records)
+                'sequence': generate_sequence(idx, max_records, use_nanoseconds)
             })
 
     body = {
