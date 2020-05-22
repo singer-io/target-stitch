@@ -340,11 +340,11 @@ class TestSequenceNumbers(unittest.TestCase):
 
     def test_generate_sequence_normal_batch(self):
         # Call with a sleep, to simulate the normal case (no ms collisions)
-        seq1 = target_stitch.generate_sequence(0,target_stitch.DEFAULT_MAX_BATCH_RECORDS, use_nanoseconds=False)
+        seq1 = target_stitch.generate_sequence(0,target_stitch.DEFAULT_MAX_BATCH_RECORDS)
         time.sleep(0.1)
-        seq2 = target_stitch.generate_sequence(10,target_stitch.DEFAULT_MAX_BATCH_RECORDS, use_nanoseconds=False)
+        seq2 = target_stitch.generate_sequence(10,target_stitch.DEFAULT_MAX_BATCH_RECORDS)
         time.sleep(0.1)
-        seq3 = target_stitch.generate_sequence(999,target_stitch.DEFAULT_MAX_BATCH_RECORDS, use_nanoseconds=False)
+        seq3 = target_stitch.generate_sequence(999,target_stitch.DEFAULT_MAX_BATCH_RECORDS)
         time.sleep(0.1)
 
         generated_seqs = [seq1,seq2,seq3]
@@ -358,9 +358,9 @@ class TestSequenceNumbers(unittest.TestCase):
     def test_generate_sequence_single_record_batches(self):
         # Call without sleep and same message_num to create collisions reliably
         # This is the situation where multiple single record batches get cut in succession
-        seq1 = target_stitch.generate_sequence(0,target_stitch.DEFAULT_MAX_BATCH_RECORDS, use_nanoseconds=True)
-        seq2 = target_stitch.generate_sequence(0,target_stitch.DEFAULT_MAX_BATCH_RECORDS, use_nanoseconds=True)
-        seq3 = target_stitch.generate_sequence(0,target_stitch.DEFAULT_MAX_BATCH_RECORDS, use_nanoseconds=True)
+        seq1 = target_stitch.generate_sequence(0,target_stitch.DEFAULT_MAX_BATCH_RECORDS)
+        seq2 = target_stitch.generate_sequence(0,target_stitch.DEFAULT_MAX_BATCH_RECORDS)
+        seq3 = target_stitch.generate_sequence(0,target_stitch.DEFAULT_MAX_BATCH_RECORDS)
 
         generated_seqs = [seq1,seq2,seq3]
 
@@ -377,7 +377,7 @@ class TestSequenceNumbers(unittest.TestCase):
         # - It should tolerate an order of magnitude greater records without repeat or extending the width
         max_batch = range(target_stitch.DEFAULT_MAX_BATCH_RECORDS * 10)
 
-        generated_seqs = [target_stitch.generate_sequence(i,target_stitch.DEFAULT_MAX_BATCH_RECORDS, use_nanoseconds=False)
+        generated_seqs = [target_stitch.generate_sequence(i,target_stitch.DEFAULT_MAX_BATCH_RECORDS)
                           for i in max_batch]
 
         # Assert number's width for downstream

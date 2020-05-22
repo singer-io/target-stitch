@@ -422,7 +422,7 @@ class ValidatingHandler: # pylint: disable=too-few-public-methods
             state_writer.write("{}\n".format(line))
             state_writer.flush()
 
-def generate_sequence(message_num, max_records, use_nanoseconds=False):
+def generate_sequence(message_num, max_records):
     '''
     Generates a unique sequence number based on the current time in nanoseconds
     with a zero-padded message number based on the index of the record within the
@@ -455,13 +455,12 @@ def serialize(messages, schema, key_names, bookmark_names, max_bytes, max_record
 
     '''
     serialized_messages = []
-    use_nanoseconds = len(messages) == 1 # To prevent collisions with single record batches
     for idx, message in enumerate(messages):
         if isinstance(message, singer.RecordMessage):
             record_message = {
                 'action': 'upsert',
                 'data': message.record,
-                'sequence': generate_sequence(idx, max_records, use_nanoseconds)
+                'sequence': generate_sequence(idx, max_records)
             }
 
             if message.time_extracted:
@@ -472,7 +471,7 @@ def serialize(messages, schema, key_names, bookmark_names, max_bytes, max_record
         elif isinstance(message, singer.ActivateVersionMessage):
             serialized_messages.append({
                 'action': 'activate_version',
-                'sequence': generate_sequence(idx, max_records, use_nanoseconds)
+                'sequence': generate_sequence(idx, max_records)
             })
 
     body = {
