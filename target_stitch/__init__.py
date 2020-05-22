@@ -423,16 +423,28 @@ class ValidatingHandler: # pylint: disable=too-few-public-methods
             state_writer.flush()
 
 def generate_sequence(message_num, max_records, use_nanoseconds=False):
-    '''Generates a unique sequence number based on the current time millis
-       with a zero-padded message number based on the magnitude of max_records.'''
-    sequence_base = str(int(time.time() * MILLISECOND_SEQUENCE_MULTIPLIER))
+    '''
+    Generates a unique sequence number based on the current time in nanoseconds
+    with a zero-padded message number based on the index of the record within the
+    magnitude of max_records.
+
+    COMPATIBILITY:
+    Maintains a historical width of 19 characters (with default `max_records`), in order
+    to not overflow downstream processes that depend on the width of this number.
+
+    Because of this requirement, `message_num` is modulo the difference between nanos
+    and millis to maintain 19 characters.
+    '''
+    nanosecond_sequence_base = str(int(time.time() * NANOSECOND_SEQUENCE_MULTIPLIER))
+    modulo = NANOSECOND_SEQUENCE_MULTIPLIER / MILLISECOND_SEQUENCE_MULTIPLIER
+    zfill_width_mod = len(str(NANOSECOND_SEQUENCE_MULTIPLIER)) - len(str(MILLISECOND_SEQUENCE_MULTIPLIER))
 
     # add an extra order of magnitude to account for the fact that we can
     # actually accept more than the max record count
-    fill = len(str(10 * max_records))
-    sequence_suffix = str(message_num).zfill(fill)
+    fill = len(str(10 * max_records)) - zfill_width_mod
+    sequence_suffix = str(int(message_num % modulo)).zfill(fill)
 
-    return int(sequence_base + sequence_suffix)
+    return int(nanosecond_sequence_base + sequence_suffix)
 
 def serialize(messages, schema, key_names, bookmark_names, max_bytes, max_records):
     '''Produces request bodies for Stitch.
