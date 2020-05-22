@@ -390,8 +390,8 @@ class TestSequenceNumbers(unittest.TestCase):
 
     def test_generate_sequence_mixed_case(self):
         # Call with varying lengths of batches to ensure the widths mix
-        regular_batch = [(i,target_stitch.DEFAULT_MAX_BATCH_RECORDS,False) for i in range(100)]
-        single_record_batch = [(0,target_stitch.DEFAULT_MAX_BATCH_RECORDS,True)]
+        regular_batch = [(i,target_stitch.DEFAULT_MAX_BATCH_RECORDS) for i in range(100)]
+        single_record_batch = [(0,target_stitch.DEFAULT_MAX_BATCH_RECORDS)]
 
         test_case = (single_record_batch +
                      regular_batch +
