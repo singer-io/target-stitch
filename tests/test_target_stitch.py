@@ -333,8 +333,8 @@ class TestDetermineStitchUrl(unittest.TestCase):
 
 class TestSequenceNumbers(unittest.TestCase):
     def setUp(self):
-        # NB: The algorithm at time of writing is: (str(ms_timestamp * 1000) + message_num.zfill(len(str(10*20000))))
-        # - 20000 being the DEFAULT_MAX_BATCH_RECORDS
+        # NB: This is the historical width of the sequence number integer
+        # - Generally, it's a combination of (timestamp + padded_row_index) for 19 digits
         # - This should be increased/decreased with care to prevent downstream issues
         self.STANDARD_SEQ_LENGTH = 19
 
