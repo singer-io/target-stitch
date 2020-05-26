@@ -1,5 +1,8 @@
 # Changelog
 
+## 3.0.3
+  * Generates sequence numbers based on nanosecond time to avoid collisions with small, async batches [#90](https://github.com/singer-io/target-stitch/pull/90)
+
 ## 3.0.1
   * Removes requirement for `connection_ns` property.
 
