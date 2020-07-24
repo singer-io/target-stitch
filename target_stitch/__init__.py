@@ -613,7 +613,7 @@ class TargetStitch:
                 self.contains_activate_version[current_stream] = True
 
             num_bytes = self.buffer_size_bytes
-            num_messages = len(self.messages[current_stream])
+            num_messages = sum((len(messages) for messages in self.messages.values()))
             num_seconds = time.time() - self.time_last_batch_sent
 
             enough_bytes = num_bytes >= self.max_batch_bytes

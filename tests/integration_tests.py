@@ -656,7 +656,7 @@ class BufferingPerStream(unittest.TestCase):
         self.og_check_send_exception = target_stitch.check_send_exception
         self.out = io.StringIO()
         self.target_stitch = target_stitch.TargetStitch(
-            [handler], self.out, 4000000, 6, 100000)
+            [handler], self.out, 4000000, 20, 100000)
         self.queue = [json.dumps({"type": "SCHEMA", "stream": "chicken_stream",
                                   "key_properties": ["id"],
                                   "schema": {"type": "object",
@@ -698,7 +698,7 @@ class BufferingPerStream(unittest.TestCase):
     def test_streams_buffer_records(self):
         # Tests that the target will buffer records per stream. This will
         # allow the tap to alternate which streams it is emitting records
-        # for without the target cutting batches of 1 record
+        # for without the target cutting small batches
         target_stitch.OUR_SESSION = FakeSession(mock_in_order_all_200)
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 1, "name": "Mike"}}))
         self.queue.append(json.dumps({"type": "RECORD", "stream": "zebra_stream", "record": {"id": 2, "name": "Paul"}}))
