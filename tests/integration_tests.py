@@ -697,8 +697,7 @@ class SingleRecordBatches(unittest.TestCase):
 
     def test_single_record_batches_dont_exist(self):
         # Tests that the target will not emit single record batches if
-        # streams alternate rapidly due to this increasing the chance for
-        # duplicate sequence numbers.
+        # streams alternate rapidly
         target_stitch.OUR_SESSION = FakeSession(mock_in_order_all_200)
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 1, "name": "Mike"}}))
         self.queue.append(json.dumps({"type": "RECORD", "stream": "zebra_stream", "record": {"id": 2, "name": "Paul"}}))
