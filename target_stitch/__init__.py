@@ -516,7 +516,7 @@ class TargetStitch:
                  batch_delay_seconds):
         self.messages = {}
         self.contains_activate_version = {}
-        self.buffer_size_bytes = 0
+        self.buffer_size_bytes = {}
         self.state = None
 
         # Mapping from stream name to {'schema': ..., 'key_names': ..., 'bookmark_names': ... }
@@ -558,7 +558,7 @@ class TargetStitch:
         self.time_last_batch_sent = time.time()
         self.contains_activate_version[stream] = False
         self.state = None
-        self.buffer_size_bytes = 0
+        self.buffer_size_bytes[stream] = 0
         self.messages[stream] = []
 
 
@@ -608,11 +608,11 @@ class TargetStitch:
                 self.flush()
 
             self.messages[current_stream].append(message)
-            self.buffer_size_bytes += len(line)
+            self.buffer_size_bytes[current_stream] = self.buffer_size_bytes.get(current_stream, 0) + len(line)
             if isinstance(message, singer.ActivateVersionMessage):
                 self.contains_activate_version[current_stream] = True
 
-            num_bytes = self.buffer_size_bytes
+            num_bytes = sum(self.buffer_size_bytes.values())
             num_messages = sum((len(messages) for messages in self.messages.values()))
             num_seconds = time.time() - self.time_last_batch_sent
 
@@ -633,7 +633,8 @@ class TargetStitch:
 
             if num_seconds >= self.batch_delay_seconds:
                 LOGGER.debug('Flushing %d bytes, %d messages, after %.2f seconds',
-                             self.buffer_size_bytes, len(self.messages), num_seconds)
+                             sum(self.buffer_size_bytes.values()),
+                             sum(len(messages) for messages in self.messages.values()), num_seconds)
                 self.flush()
                 self.time_last_batch_sent = time.time()
 
