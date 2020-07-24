@@ -541,10 +541,10 @@ class TargetStitch:
 
 
 
-    def flush_stream(self, messages):
+    def flush_stream(self, stream):
         '''Send all the buffered messages to Stitch.'''
 
-        stream = messages[0].stream
+        messages = self.messages[stream]
         stream_meta = self.stream_meta[stream]
         for handler in self.handlers:
             handler.handle_batch(messages,
@@ -559,13 +559,13 @@ class TargetStitch:
         self.contains_activate_version[stream] = False
         self.state = None
         self.buffer_size_bytes = 0
+        self.messages[stream] = []
 
 
     def flush(self):
         if sum([len(ms) for ms in self.messages.values()]) > 0:
-            for messages in self.messages.values():
-                self.flush_stream(messages)
-            self.messages = {k: [] for k in self.messages.keys()}
+            for stream in self.messages.keys():
+                self.flush_stream(stream)
         # NB> State is usually handled above but in the case there are no messages
         # we still want to ensure state is emitted.
         elif self.state:
