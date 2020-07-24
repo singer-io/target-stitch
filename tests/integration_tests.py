@@ -647,7 +647,7 @@ class StateEdgeCases(unittest.TestCase):
                           {"bookmarks":{"chicken_stream":{"id": 1 }},
                            'currently_syncing' : 'chicken_stream'})
 
-class SingleRecordBatches(unittest.TestCase):
+class BufferingPerStream(unittest.TestCase):
     def setUp(self):
         self.maxDiff = None
         token = None
@@ -695,9 +695,10 @@ class SingleRecordBatches(unittest.TestCase):
             'big_batch_url' : "http://big-batch",
         }
 
-    def test_single_record_batches_dont_exist(self):
-        # Tests that the target will not emit single record batches if
-        # streams alternate rapidly
+    def test_streams_buffer_records(self):
+        # Tests that the target will buffer records per stream. This will
+        # allow the tap to alternate which streams it is emitting records
+        # for without the target cutting batches of 1 record
         target_stitch.OUR_SESSION = FakeSession(mock_in_order_all_200)
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 1, "name": "Mike"}}))
         self.queue.append(json.dumps({"type": "RECORD", "stream": "zebra_stream", "record": {"id": 2, "name": "Paul"}}))
@@ -740,7 +741,7 @@ class SingleRecordBatches(unittest.TestCase):
                                 'data': {'id': 11, 'name': 'F'}}]]
 
         # Should be broken into only 2 batches
-        #self.assertEqual(len(target_stitch.OUR_SESSION.messages_sent), 2)
+        self.assertEqual(len(target_stitch.OUR_SESSION.messages_sent), 2)
 
         # Sort by length and remove sequence number to compare directly
         actual_messages = [[{key: m[key] for key in ["action","data"]} for m in ms]
