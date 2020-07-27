@@ -751,8 +751,8 @@ class BufferingPerStream(unittest.TestCase):
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 1, "name": "Mike"}}))
         self.queue.append(json.dumps({"type": "RECORD", "stream": "zebra_stream", "record": {"id": 2, "name": "Paul"}}))
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 3, "name": "Harrsion"}}))
-        self.queue.append(json.dumps({"type": "RECORD", "stream": "zebra_stream", "record": {"id": 4, "name": "Cathy"}}))
-        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 5, "name": "Really long name that should force the target to exceed its byte limit and flush the streams. Blah blah blah, more data more problems."}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "zebra_stream", "record": {"id": 4, "name": "The byte limit should be across streams, so lets make lots of data on both streams"}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 5, "name": "to force the target to exceed its byte limit"}}))
         self.queue.append(json.dumps({"type": "RECORD", "stream": "zebra_stream", "record": {"id": 6, "name": "A"}}))
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 7, "name": "B"}}))
         # Should flush here
@@ -769,11 +769,9 @@ class BufferingPerStream(unittest.TestCase):
              {'action': 'upsert', 'data': {'id': 3, 'name': 'Harrsion'}},
              {'action': 'upsert',
               'data': {'id': 5,
-                       'name': 'Really long name that should force the target to exceed ' \
-                       'its byte limit and flush the streams. Blah blah blah, ' \
-                       'more data more problems.'}}],
+                       'name': 'to force the target to exceed its byte limit'}}],
             [{'action': 'upsert', 'data': {'id': 2, 'name': 'Paul'}},
-             {'action': 'upsert', 'data': {'id': 4, 'name': 'Cathy'}}],
+             {'action': 'upsert', 'data': {'id': 4, 'name': 'The byte limit should be across streams, so lets make lots of data on both streams'}}],
             [{'action': 'upsert', 'data': {'id': 6, 'name': 'A'}},
              {'action': 'upsert', 'data': {'id': 8, 'name': 'C'}}],
             [{'action': 'upsert', 'data': {'id': 7, 'name': 'B'}},
