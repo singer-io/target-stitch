@@ -656,7 +656,7 @@ class BufferingPerStream(unittest.TestCase):
         self.og_check_send_exception = target_stitch.check_send_exception
         self.out = io.StringIO()
         self.target_stitch = target_stitch.TargetStitch(
-            [handler], self.out, 4000000, 7, 100000)
+            [handler], self.out, 500, 7, 100000)
         self.queue = [json.dumps({"type": "SCHEMA", "stream": "chicken_stream",
                                   "key_properties": ["id"],
                                   "schema": {"type": "object",
@@ -744,6 +744,48 @@ class BufferingPerStream(unittest.TestCase):
         # Sort by length and remove sequence number to compare directly
         actual_messages = [[{key: m[key] for key in ["action","data"]} for m in ms]
                            for ms in sorted(target_stitch.OUR_SESSION.messages_sent, key=lambda ms: len(ms))]
+        self.assertEqual(actual_messages, expected_messages)
+
+    def test_flush_based_on_bytes(self):
+        target_stitch.OUR_SESSION = FakeSession(mock_in_order_all_200)
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 1, "name": "Mike"}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "zebra_stream", "record": {"id": 2, "name": "Paul"}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 3, "name": "Harrsion"}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "zebra_stream", "record": {"id": 4, "name": "Cathy"}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 5, "name": "Really long name that should force the target to exceed its byte limit and flush the streams. Blah blah blah, more data more problems."}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "zebra_stream", "record": {"id": 6, "name": "A"}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 7, "name": "B"}}))
+        # Should flush here
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "zebra_stream", "record": {"id": 8, "name": "C"}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 9, "name": "D"}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 10, "name": "E"}}))
+        # Should flush here
+
+        self.target_stitch.consume(self.queue)
+        finish_requests()
+
+        expected_messages = [
+            [{'action': 'upsert', 'data': {'id': 1, 'name': 'Mike'}},
+             {'action': 'upsert', 'data': {'id': 3, 'name': 'Harrsion'}},
+             {'action': 'upsert',
+              'data': {'id': 5,
+                       'name': 'Really long name that should force the target to exceed ' \
+                       'its byte limit and flush the streams. Blah blah blah, ' \
+                       'more data more problems.'}}],
+            [{'action': 'upsert', 'data': {'id': 2, 'name': 'Paul'}},
+             {'action': 'upsert', 'data': {'id': 4, 'name': 'Cathy'}}],
+            [{'action': 'upsert', 'data': {'id': 6, 'name': 'A'}},
+             {'action': 'upsert', 'data': {'id': 8, 'name': 'C'}}],
+            [{'action': 'upsert', 'data': {'id': 7, 'name': 'B'}},
+             {'action': 'upsert', 'data': {'id': 9, 'name': 'D'}},
+             {'action': 'upsert', 'data': {'id': 10, 'name': 'E'}}]]
+
+        # Should be broken into 4 batches
+        self.assertEqual(len(target_stitch.OUR_SESSION.messages_sent), 4)
+
+        # Sort by length and remove sequence number to compare directly
+        actual_messages = [[{key: m[key] for key in ["action","data"]} for m in ms]
+                           for ms in sorted(target_stitch.OUR_SESSION.messages_sent, key=lambda ms: ms[0]['data']['id'])]
         self.assertEqual(actual_messages, expected_messages)
 
 
