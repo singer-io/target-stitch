@@ -616,8 +616,10 @@ class TargetStitch:
 
         elif isinstance(message, (singer.RecordMessage, singer.ActivateVersionMessage)):
             current_stream = message.stream
-            if self.messages[current_stream] and (
-                    message.version != self.messages[current_stream][0].version):
+            # NB> This previously would flush on a stream change. Because
+            # we are now buffering records across streams we do not need
+            # to flush on stream change
+            if self.messages[current_stream] and (message.version != self.messages[current_stream][0].version):
                 self.flush()
 
             self.messages[current_stream].append(message)
