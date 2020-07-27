@@ -738,8 +738,6 @@ class BufferingPerStream(unittest.TestCase):
              {'action': 'upsert',
               'data': {'id': 7, 'name': 'B'}},]]
 
-
-
         # Should be broken into 4 batches
         self.assertEqual(len(target_stitch.OUR_SESSION.messages_sent), 4)
 
