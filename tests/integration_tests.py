@@ -647,7 +647,7 @@ class StateEdgeCases(unittest.TestCase):
                           {"bookmarks":{"chicken_stream":{"id": 1 }},
                            'currently_syncing' : 'chicken_stream'})
 
-class BufferingPerStream(unittest.TestCase):
+class BufferingPerStreamConstraints(unittest.TestCase):
     def setUp(self):
         self.maxDiff = None
         token = None
@@ -695,7 +695,7 @@ class BufferingPerStream(unittest.TestCase):
             'big_batch_url' : "http://big-batch",
         }
 
-    def test_streams_buffer_records(self):
+    def test_flush_based_on_message_count(self):
         # Tests that the target will buffer records per stream. This will
         # allow the tap to alternate which streams it is emitting records
         # for without the target cutting small batches
@@ -769,7 +769,7 @@ class BufferingPerStream(unittest.TestCase):
              {'action': 'upsert', 'data': {'id': 3, 'name': 'Harrsion'}},
              {'action': 'upsert',
               'data': {'id': 5,
-                       'name': 'to force the target to exceed its byte limit'}}],
+                       'name': 'Really long name that should force the target to exceed the limit'}}],
             [{'action': 'upsert', 'data': {'id': 2, 'name': 'Paul'}},
              {'action': 'upsert', 'data': {'id': 4, 'name': 'The byte limit should be across streams, so lets make lots of data on both streams'}}],
             [{'action': 'upsert', 'data': {'id': 6, 'name': 'A'}},
@@ -784,7 +784,120 @@ class BufferingPerStream(unittest.TestCase):
         # Sort by length and remove sequence number to compare directly
         actual_messages = [[{key: m[key] for key in ["action","data"]} for m in ms]
                            for ms in sorted(target_stitch.OUR_SESSION.messages_sent, key=lambda ms: ms[0]['data']['id'])]
+
         self.assertEqual(actual_messages, expected_messages)
+
+
+class BufferingPerStreamState(unittest.TestCase):
+    def setUp(self):
+        self.maxDiff = None
+        token = None
+        handler = StitchHandler(target_stitch.DEFAULT_MAX_BATCH_BYTES, 3)
+
+        # Swap out the post_coroutine with a mocked one to fake failures
+        self.actual_post_coroutine = target_stitch.post_coroutine
+        target_stitch.post_coroutine = self.mock_post_coroutine
+
+        self.messages_sent = 0
+
+        self.og_check_send_exception = target_stitch.check_send_exception
+        self.out = io.StringIO()
+        self.target_stitch = target_stitch.TargetStitch(
+            [handler], self.out, 4000000, 10, 100000)
+        self.queue = [json.dumps({"type": "SCHEMA", "stream": "chicken_stream",
+                                  "key_properties": ["id"],
+                                  "schema": {"type": "object",
+                                             "properties": {"id": {"type": "integer"}}}}),
+                      json.dumps({"type": "SCHEMA", "stream": "zebra_stream",
+                                  "key_properties": ["id"],
+                                  "schema": {"type": "object",
+                                             "properties": {"id": {"type": "integer"}}}})]
+
+        target_stitch.SEND_EXCEPTION = None
+        for f,s in target_stitch.PENDING_REQUESTS:
+            try:
+                f.cancel()
+            except:
+                pass
+
+        target_stitch.PENDING_REQUESTS = []
+        LOGGER.info("cleaning SEND_EXCEPTIONS: %s AND PENDING_REQUESTS: %s",
+                    target_stitch.SEND_EXCEPTION,
+                    target_stitch.PENDING_REQUESTS)
+
+        target_stitch.CONFIG ={
+            'token': "some-token",
+            'client_id': "some-client",
+            'disable_collection': True,
+            'connection_ns': "some-ns",
+            'batch_size_preferences' : {
+                'full_table_streams' : [],
+                'batch_size_preference': None,
+                'user_batch_size_preference': None,
+            },
+            'turbo_boost_factor' : 10,
+            'small_batch_url' : "http://small-batch",
+            'big_batch_url' : "http://big-batch",
+        }
+
+
+    def tearDown(self):
+        target_stitch.post_coroutine = self.actual_post_coroutine
+
+    async def mock_post_coroutine(self, url, headers, data, verify_ssl):
+        if self.messages_sent == 8:
+            raise target_stitch.StitchClientResponseError(400, "Test exception")
+        else:
+            self.messages_sent += 1
+            return await self.actual_post_coroutine(url, headers, data, verify_ssl)
+
+
+
+    def test_state_interleaving_works(self):
+        # Tests that the target will buffer records per stream. This will
+        # allow the tap to alternate which streams it is emitting records
+        # for without the target cutting small batches
+        self.target_stitch.OUR_SESSION = FakeSession(mock_in_order_all_200)
+
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 1}}))
+        self.queue.append(json.dumps({"type": "STATE",  "value": {"bookmarks": {"chicken_stream": {"id": 1}}}}))
+
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "zebra_stream", "record": {"id": 1}}))
+        self.queue.append(json.dumps({"type": "STATE",  "value": {"bookmarks": {"chicken_stream": {"id": 1},
+                                                                                "zebra_stream": {"id": 1}}}}))
+
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 2}}))
+        self.queue.append(json.dumps({"type": "STATE",  "value": {"bookmarks": {"chicken_stream": {"id": 2},
+                                                                                "zebra_stream": {"id": 1}}}}))
+
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "zebra_stream", "record": {"id": 2}}))
+        self.queue.append(json.dumps({"type": "STATE",  "value": {"bookmarks": {"chicken_stream": {"id": 2},
+                                                                                "zebra_stream": {"id": 2}}}}))
+
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 3}}))
+        self.queue.append(json.dumps({"type": "STATE",  "value": {"bookmarks": {"chicken_stream": {"id": 3},
+                                                                                "zebra_stream": {"id": 2}}}}))
+
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "zebra_stream", "record": {"id": 3}}))
+        self.queue.append(json.dumps({"type": "STATE",  "value": {"bookmarks": {"chicken_stream": {"id": 3},
+                                                                                "zebra_stream": {"id": 3}}}}))
+
+        self.target_stitch.consume(self.queue)
+        finish_requests()
+
+        expected_messages = []
+
+        # Should be broken into 4 batches
+        #self.assertEqual(len(target_stitch.OUR_SESSION.messages_sent), 4)
+
+        # Sort by length and remove sequence number to compare directly
+        # actual_messages = [[{key: m[key] for key in ["action","data"]} for m in ms]
+        #                    for ms in sorted(target_stitch.OUR_SESSION.messages_sent, key=lambda ms: len(ms))]
+
+        import ipdb; ipdb.set_trace()
+        1+1
+        # self.assertEqual(actual_messages, expected_messages)
+
 
 
 if __name__== "__main__":
