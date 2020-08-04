@@ -861,8 +861,6 @@ class BufferingPerStreamState(unittest.TestCase):
         await asyncio.sleep(5)
         raise target_stitch.StitchClientResponseError(400, "Test exception")
 
-
-
     def test_state_interleaving_works(self):
         # Tests that the target will buffer records per stream. This will
         # allow the tap to alternate which streams it is emitting records
@@ -904,17 +902,25 @@ class BufferingPerStreamState(unittest.TestCase):
         except:
             pass
 
-        expected_messages = []
+        # There should only be messages for the 2 streams because the
+        # third one should fail due to the mocking code
+        expected_messages = [[{'action': 'upsert', 'data': {'id': 1}},
+                              {'action': 'upsert', 'data': {'id': 2}}],
+                             [{'action': 'upsert', 'data': {'id': 1}},
+                             {'action': 'upsert', 'data': {'id': 2}}]]
 
-        # Should be broken into 4 batches
-        #self.assertEqual(len(target_stitch.OUR_SESSION.messages_sent), 4)
+        expected_state = ''
+
+        # Should be broken into 2 batches (because the third fails)
+        self.assertEqual(len(target_stitch.OUR_SESSION.messages_sent), 2)
 
         # Sort by length and remove sequence number to compare directly
-        #emitted_state = list(map(json.loads, self.out.getvalue().strip().split('\n')))
+        emitted_state = self.out.getvalue()
         actual_messages = [[{key: m[key] for key in ["action","data"]} for m in ms]
                            for ms in sorted(target_stitch.OUR_SESSION.messages_sent, key=lambda ms: len(ms))]
 
-        # self.assertEqual(actual_messages, expected_messages)
+        self.assertEqual(actual_messages, expected_messages)
+        self.assertEqual(emitted_state, expected_state)
 
 
 
