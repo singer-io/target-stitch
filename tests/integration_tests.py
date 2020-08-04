@@ -811,6 +811,10 @@ class BufferingPerStreamState(unittest.TestCase):
                       json.dumps({"type": "SCHEMA", "stream": "zebra_stream",
                                   "key_properties": ["id"],
                                   "schema": {"type": "object",
+                                             "properties": {"id": {"type": "integer"}}}}),
+                      json.dumps({"type": "SCHEMA", "stream": "dog_stream",
+                                  "key_properties": ["id"],
+                                  "schema": {"type": "object",
                                              "properties": {"id": {"type": "integer"}}}})]
 
         target_stitch.SEND_EXCEPTION = None
@@ -845,11 +849,17 @@ class BufferingPerStreamState(unittest.TestCase):
         target_stitch.post_coroutine = self.actual_post_coroutine
 
     async def mock_post_coroutine(self, url, headers, data, verify_ssl):
-        if self.messages_sent == 8:
-            raise target_stitch.StitchClientResponseError(400, "Test exception")
+        LOGGER.info("Sending message number %s", self.messages_sent)
+        self.messages_sent += 1
+        if self.messages_sent == 3:
+            return await self.wait_then_throw()
         else:
-            self.messages_sent += 1
             return await self.actual_post_coroutine(url, headers, data, verify_ssl)
+
+    @staticmethod
+    async def wait_then_throw():
+        await asyncio.sleep(5)
+        raise target_stitch.StitchClientResponseError(400, "Test exception")
 
 
 
@@ -857,7 +867,7 @@ class BufferingPerStreamState(unittest.TestCase):
         # Tests that the target will buffer records per stream. This will
         # allow the tap to alternate which streams it is emitting records
         # for without the target cutting small batches
-        self.target_stitch.OUR_SESSION = FakeSession(mock_in_order_all_200)
+        target_stitch.OUR_SESSION = FakeSession(mock_in_order_all_200)
 
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 1}}))
         self.queue.append(json.dumps({"type": "STATE",  "value": {"bookmarks": {"chicken_stream": {"id": 1}}}}))
@@ -866,24 +876,33 @@ class BufferingPerStreamState(unittest.TestCase):
         self.queue.append(json.dumps({"type": "STATE",  "value": {"bookmarks": {"chicken_stream": {"id": 1},
                                                                                 "zebra_stream": {"id": 1}}}}))
 
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "dog_stream", "record": {"id": 1}}))
+        self.queue.append(json.dumps({"type": "STATE",  "value": {"bookmarks": {"chicken_stream": {"id": 1},
+                                                                                "zebra_stream": {"id": 1},
+                                                                                "dog_stream": {"id": 1}}}}))
+
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 2}}))
         self.queue.append(json.dumps({"type": "STATE",  "value": {"bookmarks": {"chicken_stream": {"id": 2},
-                                                                                "zebra_stream": {"id": 1}}}}))
+                                                                                "zebra_stream": {"id": 1},
+                                                                                "dog_stream": {"id": 1}}}}))
 
         self.queue.append(json.dumps({"type": "RECORD", "stream": "zebra_stream", "record": {"id": 2}}))
         self.queue.append(json.dumps({"type": "STATE",  "value": {"bookmarks": {"chicken_stream": {"id": 2},
-                                                                                "zebra_stream": {"id": 2}}}}))
+                                                                                "zebra_stream": {"id": 2},
+                                                                                "dog_stream": {"id": 1}}}}))
 
-        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 3}}))
-        self.queue.append(json.dumps({"type": "STATE",  "value": {"bookmarks": {"chicken_stream": {"id": 3},
-                                                                                "zebra_stream": {"id": 2}}}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "dog_stream", "record": {"id": 2}}))
+        self.queue.append(json.dumps({"type": "STATE",  "value": {"bookmarks": {"chicken_stream": {"id": 2},
+                                                                                "zebra_stream": {"id": 2},
+                                                                                "dog_stream": {"id": 2}}}}))
 
-        self.queue.append(json.dumps({"type": "RECORD", "stream": "zebra_stream", "record": {"id": 3}}))
-        self.queue.append(json.dumps({"type": "STATE",  "value": {"bookmarks": {"chicken_stream": {"id": 3},
-                                                                                "zebra_stream": {"id": 3}}}}))
 
         self.target_stitch.consume(self.queue)
-        finish_requests()
+
+        try:
+            finish_requests()
+        except:
+            pass
 
         expected_messages = []
 
@@ -891,11 +910,10 @@ class BufferingPerStreamState(unittest.TestCase):
         #self.assertEqual(len(target_stitch.OUR_SESSION.messages_sent), 4)
 
         # Sort by length and remove sequence number to compare directly
-        # actual_messages = [[{key: m[key] for key in ["action","data"]} for m in ms]
-        #                    for ms in sorted(target_stitch.OUR_SESSION.messages_sent, key=lambda ms: len(ms))]
+        #emitted_state = list(map(json.loads, self.out.getvalue().strip().split('\n')))
+        actual_messages = [[{key: m[key] for key in ["action","data"]} for m in ms]
+                           for ms in sorted(target_stitch.OUR_SESSION.messages_sent, key=lambda ms: len(ms))]
 
-        import ipdb; ipdb.set_trace()
-        1+1
         # self.assertEqual(actual_messages, expected_messages)
 
 
