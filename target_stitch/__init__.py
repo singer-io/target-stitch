@@ -55,8 +55,8 @@ OUR_SESSION = None
 
 # This datastructure contains our pending aiohttp requests.
 # The main thread will read from it.
-# The event loop thread will write to it by appending new requests to it and removing completed requests.
-PENDING_REQUESTS = []
+# The event loop thread will write to it by adding new requests to it and discarding completed requests.
+PENDING_REQUESTS = set()
 
 # This variable holds any exceptions we have encountered sending data to the gate.
 # The main thread will read from it and terminate the target if an exception is present.
@@ -211,41 +211,27 @@ class StitchHandler: # pylint: disable=too-few-public-methods
 
     @staticmethod
     #this happens in the event loop
-    def flush_states(state_writer, future):
+    def flush_states(state_writer, state):
 
         global PENDING_REQUESTS
         global SEND_EXCEPTION
 
-        completed_count = 0
-
         #NB> if/when the first coroutine errors out, we will record it for examination by the main threa.
         #if/when this happens, no further flushing of state should ever occur.  the main thread, in fact,
         #should shutdown quickly after it spots the exception
-        if SEND_EXCEPTION is None:
-            SEND_EXCEPTION = future.exception()
-
         if SEND_EXCEPTION is not None:
             LOGGER.info('FLUSH early exit because of SEND_EXCEPTION: %s', pformat(SEND_EXCEPTION))
             return
 
-        try:
-            for f, s in PENDING_REQUESTS:
-                if f.done():
-                    completed_count = completed_count + 1
-                    #NB> this is a very import line.
-                    #NEVER blinding emit state just because a coroutine has completed.
-                    #if this were None, we would have just nuked the client's state
-                    if s:
-                        line = simplejson.dumps(s)
-                        state_writer.write("{}\n".format(line))
-                        state_writer.flush()
-                else:
-                    break
+        finish_requests()
 
-            PENDING_REQUESTS = PENDING_REQUESTS[completed_count:]
+        # If and only if we have completed all pending requests then we
+        # can emit the state
+        if not PENDING_REQUESTS and not SEND_EXCEPTION and state:
+            line = simplejson.dumps(state)
+            state_writer.write("{}\n".format(line))
+            state_writer.flush()
 
-        except BaseException as err:
-            SEND_EXCEPTION = err
 
 
     def headers(self):
@@ -255,7 +241,7 @@ class StitchHandler: # pylint: disable=too-few-public-methods
             'Content-Type': 'application/json'
         }
 
-    def send(self, data, contains_activate_version, state_writer, state, stitch_url):
+    def send(self, data, contains_activate_version, stitch_url):
         '''Send the given data to Stitch, retrying on exceptions'''
         global PENDING_REQUESTS
         global SEND_EXCEPTION
@@ -284,26 +270,35 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         #NB> this schedules the task on the event loop thread.
         #    it will be executed at some point in the future
         future = asyncio.run_coroutine_threadsafe(post_coroutine(stitch_url, headers, data, verify_ssl), new_loop)
-        next_pending_request = (future, state)
-        PENDING_REQUESTS.append(next_pending_request)
-        future.add_done_callback(functools.partial(self.flush_states, state_writer))
+        PENDING_REQUESTS.add(future)
+        future.add_done_callback(functools.partial(self.clean_up_request))
+
+    def clean_up_request(self, future):
+        global PENDING_REQUESTS
+        global SEND_EXCEPTION
+
+        #NB> if/when the first coroutine errors out, we will record it for examination by the main threa.
+        #if/when this happens, no further flushing of state should ever occur.  the main thread, in fact,
+        #should shutdown quickly after it spots the exception
+        if future.exception() != None:
+            SEND_EXCEPTION = future.exception()
+
+        # Remove the now complete request
+        PENDING_REQUESTS.discard(future)
 
 
     def handle_state_only(self, state_writer=None, state=None):
-        async def fake_future_fn():
-            pass
+        self.flush_states(state_writer, state)
+        # global PENDING_REQUESTS
+        # #NB> no point in sending out this state if a previous request has failed
+        # check_send_exception()
+        # future = asyncio.run_coroutine_threadsafe(fake_future_fn(), new_loop)
+        # PENDING_REQUESTS.append(future)
 
-        global PENDING_REQUESTS
-        #NB> no point in sending out this state if a previous request has failed
-        check_send_exception()
-        future = asyncio.run_coroutine_threadsafe(fake_future_fn(), new_loop)
-        next_pending_request = (future, state)
-        PENDING_REQUESTS.append(next_pending_request)
-
-        future.add_done_callback(functools.partial(self.flush_states, state_writer))
+        # future.add_done_callback(functools.partial(self.flush_states, state_writer, state))
 
 
-    def handle_batch(self, messages, contains_activate_version, schema, key_names, bookmark_names=None, state_writer=None, state=None, ):
+    def handle_batch(self, messages, contains_activate_version, schema, key_names, bookmark_names=None):
         '''Handle messages by sending them to Stitch.
 
         If the serialized form of the messages is too large to fit into a
@@ -329,11 +324,7 @@ class StitchHandler: # pylint: disable=too-few-public-methods
                 if len(body) > DEFAULT_MAX_BATCH_BYTES:
                     stitch_url = CONFIG.get('big_batch_url')
 
-                flushable_state = None
-                if i + 1 == len(bodies):
-                    flushable_state = state
-
-                self.send(body, contains_activate_version, state_writer, flushable_state, stitch_url)
+                self.send(body, contains_activate_version, stitch_url)
 
 
 class LoggingHandler:  # pylint: disable=too-few-public-methods
@@ -352,7 +343,7 @@ class LoggingHandler:  # pylint: disable=too-few-public-methods
             state_writer.flush()
 
 
-    def handle_batch(self, messages, contains_activate_version, schema, key_names, bookmark_names=None, state_writer=None, state=None): #pylint: disable=unused-argument
+    def handle_batch(self, messages, contains_activate_version, schema, key_names, bookmark_names=None): #pylint: disable=unused-argument
         '''Handles a batch of messages by saving them to a local output file.
 
         Serializes records in the same way StitchHandler does, so the
@@ -373,12 +364,6 @@ class LoggingHandler:  # pylint: disable=too-few-public-methods
             self.output_file.write(body)
             self.output_file.write('\n')
 
-        if state:
-            line = simplejson.dumps(state)
-            state_writer.write("{}\n".format(line))
-            state_writer.flush()
-
-
 
 class ValidatingHandler: # pylint: disable=too-few-public-methods
     '''Validates input messages against their schema.'''
@@ -394,7 +379,7 @@ class ValidatingHandler: # pylint: disable=too-few-public-methods
             state_writer.write("{}\n".format(line))
             state_writer.flush()
 
-    def handle_batch(self, messages, contains_activate_version, schema, key_names, bookmark_names=None, state_writer=None, state=None): # pylint: disable=no-self-use,unused-argument
+    def handle_batch(self, messages, contains_activate_version, schema, key_names, bookmark_names=None): # pylint: disable=no-self-use,unused-argument
         '''Handles messages by validating them against schema.'''
         LOGGER.info("ValidatingHandler handle_batch")
         validator = Draft4Validator(schema, format_checker=FormatChecker())
@@ -417,10 +402,6 @@ class ValidatingHandler: # pylint: disable=too-few-public-methods
         LOGGER.info('%s (%s): Batch is valid',
                     messages[0].stream,
                     len(messages))
-        if state:
-            line = simplejson.dumps(state)
-            state_writer.write("{}\n".format(line))
-            state_writer.flush()
 
 def generate_sequence(message_num, max_records):
     '''
@@ -564,26 +545,22 @@ class TargetStitch:
                                  self.contains_activate_version.get(stream, False),
                                  stream_meta.schema,
                                  stream_meta.key_properties,
-                                 stream_meta.bookmark_properties,
-                                 self.state_writer,
-                                 self.state)
+                                 stream_meta.bookmark_properties)
 
         self.time_last_batch_sent = time.time()
         self.contains_activate_version[stream] = False
-        self.state = None
         self.buffer_size_bytes[stream] = 0
         self.messages[stream] = []
 
 
     def flush(self):
-        flushed = False
         for stream, messages in self.messages.items():
             if len(messages) > 0:
+                LOGGER.info("XXXXX FLUSHING STREAM %s", stream)
                 self.flush_stream(stream)
-                flushed = True
         # NB> State is usually handled above but in the case there are no messages
         # we still want to ensure state is emitted.
-        if not flushed and self.state:
+        if self.state:
             for handler in self.handlers:
                 handler.handle_state_only(self.state_writer, self.state)
             self.state = None
@@ -592,11 +569,9 @@ class TargetStitch:
 
 
     def handle_line(self, line):
-
         '''Takes a raw line from stdin and handles it, updating state and possibly
         flushing the batch to the Gate and the state to the output
         stream.
-
         '''
 
         message = overloaded_parse_message(line)

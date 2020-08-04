@@ -85,7 +85,7 @@ class AsyncSerializeFloats(unittest.TestCase):
                                   "schema": {"type": "object",
                                              "properties": {"my_float": {"type": "number"}}}})]
         target_stitch.SEND_EXCEPTION = None
-        target_stitch.PENDING_REQUESTS = []
+        target_stitch.PENDING_REQUESTS = set()
 
         LOGGER.info("cleaning SEND_EXCEPTIONS: %s AND PENDING_REQUESTS: %s",
                     target_stitch.SEND_EXCEPTION,
@@ -166,13 +166,13 @@ class AsyncPushToGate(unittest.TestCase):
                                                             "name": {"type": "string"}}}})]
 
         target_stitch.SEND_EXCEPTION = None
-        for f,s in target_stitch.PENDING_REQUESTS:
+        for f in target_stitch.PENDING_REQUESTS:
             try:
                 f.cancel()
             except:
                 pass
 
-        target_stitch.PENDING_REQUESTS = []
+        target_stitch.PENDING_REQUESTS = set()
         LOGGER.info("cleaning SEND_EXCEPTIONS: %s AND PENDING_REQUESTS: %s",
                     target_stitch.SEND_EXCEPTION,
                     target_stitch.PENDING_REQUESTS)
@@ -528,13 +528,13 @@ class StateOnly(unittest.TestCase):
             [handler], self.out, 4000000, 1, 0)
         self.queue = []
         target_stitch.SEND_EXCEPTION = None
-        for f,s in target_stitch.PENDING_REQUESTS:
+        for f in target_stitch.PENDING_REQUESTS:
             try:
                 f.cancel()
             except:
                 pass
 
-        target_stitch.PENDING_REQUESTS = []
+        target_stitch.PENDING_REQUESTS = set()
         LOGGER.info("cleaning SEND_EXCEPTIONS: %s AND PENDING_REQUESTS: %s",
                     target_stitch.SEND_EXCEPTION,
                     target_stitch.PENDING_REQUESTS)
@@ -577,7 +577,7 @@ class StateEdgeCases(unittest.TestCase):
                                   "schema": {"type": "object",
                                              "properties": {"my_float": {"type": "number"}}}})]
         target_stitch.SEND_EXCEPTION = None
-        target_stitch.PENDING_REQUESTS = []
+        target_stitch.PENDING_REQUESTS = set()
 
         LOGGER.info("cleaning SEND_EXCEPTIONS: %s AND PENDING_REQUESTS: %s",
                     target_stitch.SEND_EXCEPTION,
@@ -669,13 +669,14 @@ class BufferingPerStreamConstraints(unittest.TestCase):
                                                             "name": {"type": "string"}}}})]
 
         target_stitch.SEND_EXCEPTION = None
-        for f,s in target_stitch.PENDING_REQUESTS:
+        for f in target_stitch.PENDING_REQUESTS:
             try:
                 f.cancel()
             except:
                 pass
 
-        target_stitch.PENDING_REQUESTS = []
+        target_stitch.PENDING_REQUESTS = set()
+
         LOGGER.info("cleaning SEND_EXCEPTIONS: %s AND PENDING_REQUESTS: %s",
                     target_stitch.SEND_EXCEPTION,
                     target_stitch.PENDING_REQUESTS)
@@ -818,13 +819,13 @@ class BufferingPerStreamState(unittest.TestCase):
                                              "properties": {"id": {"type": "integer"}}}})]
 
         target_stitch.SEND_EXCEPTION = None
-        for f,s in target_stitch.PENDING_REQUESTS:
+        for f in target_stitch.PENDING_REQUESTS:
             try:
                 f.cancel()
             except:
                 pass
 
-        target_stitch.PENDING_REQUESTS = []
+        target_stitch.PENDING_REQUESTS = set()
         LOGGER.info("cleaning SEND_EXCEPTIONS: %s AND PENDING_REQUESTS: %s",
                     target_stitch.SEND_EXCEPTION,
                     target_stitch.PENDING_REQUESTS)
@@ -849,8 +850,8 @@ class BufferingPerStreamState(unittest.TestCase):
         target_stitch.post_coroutine = self.actual_post_coroutine
 
     async def mock_post_coroutine(self, url, headers, data, verify_ssl):
-        LOGGER.info("Sending message number %s", self.messages_sent)
         self.messages_sent += 1
+        LOGGER.info("MOCK POST COROUTINE: Sending message number %s", self.messages_sent)
         if self.messages_sent == 3:
             return await self.wait_then_throw()
         else:
@@ -858,10 +859,10 @@ class BufferingPerStreamState(unittest.TestCase):
 
     @staticmethod
     async def wait_then_throw():
-        await asyncio.sleep(5)
+        await asyncio.sleep(1)
         raise target_stitch.StitchClientResponseError(400, "Test exception")
 
-    def test_state_interleaving_works(self):
+    def test_state_interleaving(self):
         # Tests that the target will buffer records per stream. This will
         # allow the tap to alternate which streams it is emitting records
         # for without the target cutting small batches
@@ -895,12 +896,14 @@ class BufferingPerStreamState(unittest.TestCase):
                                                                                 "dog_stream": {"id": 2}}}}))
 
 
-        self.target_stitch.consume(self.queue)
-
         try:
+            self.target_stitch.consume(self.queue)
             finish_requests()
-        except:
-            pass
+        except target_stitch.TargetStitchException as ex:
+            our_exception = ex
+
+        self.assertIsNotNone(our_exception)
+
 
         # There should only be messages for the 2 streams because the
         # third one should fail due to the mocking code
@@ -909,6 +912,7 @@ class BufferingPerStreamState(unittest.TestCase):
                              [{'action': 'upsert', 'data': {'id': 1}},
                              {'action': 'upsert', 'data': {'id': 2}}]]
 
+        # We expect no state because one of the requests fails
         expected_state = ''
 
         # Should be broken into 2 batches (because the third fails)
