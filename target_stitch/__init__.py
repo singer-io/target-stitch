@@ -541,7 +541,6 @@ class TargetStitch:
     def flush(self):
         for stream, messages in self.messages.items():
             if len(messages) > 0:
-                LOGGER.info("XXXXX FLUSHING STREAM %s", stream)
                 self.flush_stream(stream)
         # NB> State is usually handled above but in the case there are no messages
         # we still want to ensure state is emitted.
