@@ -448,8 +448,9 @@ class AsyncPushToGate(unittest.TestCase):
         self.assertTrue(isinstance(our_exception, TargetStitchException))
 
         emitted_state = self.out.getvalue().strip().split('\n')
+        expected_state = '{"bookmarks": {"chicken_stream": {"id": 1}}}'
         self.assertEqual(1, len(emitted_state))
-        self.assertEqual('', emitted_state[0])
+        self.assertEqual(expected_state, emitted_state[0])
 
     # 2 requests.
     # both with state.
