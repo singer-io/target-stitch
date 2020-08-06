@@ -80,7 +80,7 @@ class ActivateVersion(unittest.TestCase):
                                   "schema": {"type": "object",
                                              "properties": {"my_float": {"type": "number"}}}})]
         target_stitch.SEND_EXCEPTION = None
-        target_stitch.PENDING_REQUESTS = []
+        target_stitch.PENDING_REQUESTS = set()
         self.og_flush_states = StitchHandler.flush_states
         self.flushed_state_count = 0
         StitchHandler.flush_states = self.fake_flush_states
