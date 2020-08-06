@@ -209,31 +209,6 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         self.max_batch_bytes = max_batch_bytes
         self.max_batch_records = max_batch_records
 
-    @staticmethod
-    #this happens in the event loop
-    def flush_states(state_writer, state):
-
-        global PENDING_REQUESTS
-        global SEND_EXCEPTION
-
-        #NB> if/when the first coroutine errors out, we will record it for examination by the main threa.
-        #if/when this happens, no further flushing of state should ever occur.  the main thread, in fact,
-        #should shutdown quickly after it spots the exception
-        if SEND_EXCEPTION is not None:
-            LOGGER.info('FLUSH early exit because of SEND_EXCEPTION: %s', pformat(SEND_EXCEPTION))
-            return
-
-        finish_requests()
-
-        # If and only if we have completed all pending requests then we
-        # can emit the state
-        if not PENDING_REQUESTS and not SEND_EXCEPTION and state:
-            line = simplejson.dumps(state)
-            state_writer.write("{}\n".format(line))
-            state_writer.flush()
-
-
-
     def headers(self):
         '''Return the headers based on the token'''
         return {
@@ -287,15 +262,25 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         PENDING_REQUESTS.discard(future)
 
 
-    def handle_state_only(self, state_writer=None, state=None):
-        self.flush_states(state_writer, state)
-        # global PENDING_REQUESTS
-        # #NB> no point in sending out this state if a previous request has failed
-        # check_send_exception()
-        # future = asyncio.run_coroutine_threadsafe(fake_future_fn(), new_loop)
-        # PENDING_REQUESTS.append(future)
+    def handle_state(self, state_writer=None, state=None):
+        global PENDING_REQUESTS
+        global SEND_EXCEPTION
 
-        # future.add_done_callback(functools.partial(self.flush_states, state_writer, state))
+        #NB> if/when the first coroutine errors out, we will record it for examination by the main threa.
+        #if/when this happens, no further flushing of state should ever occur.  the main thread, in fact,
+        #should shutdown quickly after it spots the exception
+        if SEND_EXCEPTION is not None:
+            LOGGER.info('FLUSH early exit because of SEND_EXCEPTION: %s', pformat(SEND_EXCEPTION))
+            return
+
+        finish_requests()
+
+        # If and only if we have completed all pending requests then we
+        # can emit the state
+        if not PENDING_REQUESTS and not SEND_EXCEPTION and state:
+            line = simplejson.dumps(state)
+            state_writer.write("{}\n".format(line))
+            state_writer.flush()
 
 
     def handle_batch(self, messages, contains_activate_version, schema, key_names, bookmark_names=None):
@@ -335,8 +320,8 @@ class LoggingHandler:  # pylint: disable=too-few-public-methods
         self.max_batch_records = max_batch_records
 
     # pylint: disable=R0201
-    def handle_state_only(self, state_writer=None, state=None):
-        LOGGER.info("LoggingHandler handle_state_only: %s", state)
+    def handle_state(self, state_writer=None, state=None):
+        LOGGER.info("LoggingHandler handle_state: %s", state)
         if state:
             line = simplejson.dumps(state)
             state_writer.write("{}\n".format(line))
@@ -372,8 +357,8 @@ class ValidatingHandler: # pylint: disable=too-few-public-methods
         getcontext().prec = 76
 
     # pylint: disable=R0201
-    def handle_state_only(self, state_writer=None, state=None):
-        LOGGER.info("ValidatingHandler handle_state_only: %s", state)
+    def handle_state(self, state_writer=None, state=None):
+        LOGGER.info("ValidatingHandler handle_state: %s", state)
         if state:
             line = simplejson.dumps(state)
             state_writer.write("{}\n".format(line))
@@ -562,7 +547,7 @@ class TargetStitch:
         # we still want to ensure state is emitted.
         if self.state:
             for handler in self.handlers:
-                handler.handle_state_only(self.state_writer, self.state)
+                handler.handle_state(self.state_writer, self.state)
             self.state = None
             TIMINGS.log_timings()
 
