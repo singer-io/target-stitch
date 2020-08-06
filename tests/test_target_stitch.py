@@ -22,12 +22,15 @@ class DummyClient(object):
     def __init__(self):
         self.batches = []
 
-    def handle_batch(self, messages, contains_activate_version, schema, key_names, bookmark_names, state_writer, state):
+    def handle_batch(self, messages, contains_activate_version, schema, key_names, bookmark_names):
         self.batches.append(
             {'messages': messages,
              'schema': schema,
              'key_names': key_names,
              'bookmark_names': bookmark_names})
+
+    def handle_state(self, state_writer=None, state=None):
+        pass
 
 def message_queue(messages):
     return [json.dumps(m) for m in messages]
