@@ -419,22 +419,6 @@ class AsyncPushToGate(unittest.TestCase):
     # both with state.
     # out of order
     # second SENT request errors
-    def out_of_order_second_errors(self, requests_sent):
-        class FakeResponse:
-            def __init__(self, requests_sent):
-                self.requests_sent = requests_sent
-
-            async def json(self):
-                if (self.requests_sent == 1):
-                    self.status = 200
-                    await asyncio.sleep(3)
-                    return {"status" : "finished request {}".format(requests_sent)}
-
-                self.status = 400
-                return {"status" : "finished request {}".format(requests_sent)}
-
-        return FakeResponse(requests_sent)
-
     def test_requests_out_of_order_second_errors(self):
         target_stitch.OUR_SESSION = FakeSession(mock_out_of_order_second_errors)
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 1, "name": "Mike"}}))
