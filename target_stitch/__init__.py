@@ -273,6 +273,9 @@ class StitchHandler: # pylint: disable=too-few-public-methods
             LOGGER.info('FLUSH early exit because of SEND_EXCEPTION: %s', pformat(SEND_EXCEPTION))
             return
 
+        # TODO THIS DOES NOT WORK HERE, WILL KILL PERFORMANCE AND NEGATE
+        # ALL TURBO BOOST REWORK THIS TO NOT REQUIRE THE REQUESTS TO HAVE
+        # FINISHED HERE
         finish_requests()
 
         # If and only if we have completed all pending requests then we
