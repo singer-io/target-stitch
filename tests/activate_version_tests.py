@@ -35,34 +35,34 @@ class FakeSession:
         return FakePost(self.requests_sent, self.makeFakeResponse)
 
 class ActivateVersion(unittest.TestCase):
-    def fake_flush_states(self, state_writer, future):
-        self.flushed_state_count = self.flushed_state_count + 1
+    def fake_clean_up_request(self, future):
+        self.clean_up_request_count = self.clean_up_request_count + 1
 
-        if self.flushed_state_count == 1:
+        if self.clean_up_request_count == 1:
             #2nd request has not begun because it contains an ActivateVersion and must wait for 1 to complete
             if len(target_stitch.PENDING_REQUESTS) != 1:
                 self.first_flush_error = "ActivateVersion request should not have been issues until 1st request completed: wrong pending request count for first flush"
 
-            if future != target_stitch.PENDING_REQUESTS[0][0]:
+            if future not in target_stitch.PENDING_REQUESTS:
                 self.first_flush_error = "ActivateVersion request should not have been issues until 1st request completed: received wrong future for first flush"
 
-            if  target_stitch.PENDING_REQUESTS[0][1] != {'bookmarks': {'chicken_stream': {'id': 1}}}:
+            if target_stitch.state != {'bookmarks': {'chicken_stream': {'id': 1}}}:
                 self.first_flush_error = "ActivateVersion request should not have been issues until 1st request completed: wrong state for first flush"
 
-        elif self.flushed_state_count == 2:
+        elif self.clean_up_request_count == 2:
             if len(target_stitch.PENDING_REQUESTS) != 1:
                 self.second_flush_error = "ActivateVersion request should not have been issues until 1st request completed: wrong pending request count for second flush"
 
-            if future != target_stitch.PENDING_REQUESTS[0][0]:
+            if future not in target_stitch.PENDING_REQUESTS:
                 self.second_flush_error = "ActivateVersion request should not have been issues until 1st request completed: wrong future for second flush"
 
-            if target_stitch.PENDING_REQUESTS[0][1] is not None:
+            if target_stitch.state is not None:
                 self.second_flush_error = "ActivateVersion request should not have been issues until 1st request completed: wrong state for second flush"
 
         else:
             raise Exception('flushed state should only have been called twice')
 
-        self.og_flush_states(state_writer, future)
+        self.og_clean_up_request(future)
 
 
     def setUp(self):
@@ -81,9 +81,9 @@ class ActivateVersion(unittest.TestCase):
                                              "properties": {"my_float": {"type": "number"}}}})]
         target_stitch.SEND_EXCEPTION = None
         target_stitch.PENDING_REQUESTS = set()
-        self.og_flush_states = StitchHandler.flush_states
-        self.flushed_state_count = 0
-        StitchHandler.flush_states = self.fake_flush_states
+        self.og_clean_up_request = StitchHandler.clean_up_request
+        self.clean_up_request_count = 0
+        StitchHandler.clean_up_request = self.fake_clean_up_request
 
         target_stitch.CONFIG = {
             'token': "some-token",
