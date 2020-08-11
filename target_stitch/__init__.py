@@ -554,11 +554,22 @@ class TargetStitch:
 
 
 
-    def flush_stream(self, stream):
+    def flush_stream(self, stream, is_final_stream):
         '''Send all the buffered messages to Stitch.'''
 
         messages = self.messages[stream]
         stream_meta = self.stream_meta[stream]
+
+        # NB: We only want to include the state on the final stream we are
+        # batching because this will prevent the state from flushing until
+        # all of the streams are flushed because the state is global for
+        # all streams so if one of the streams fails to batch we cannot
+        # flush the state
+        if is_final_stream:
+            state = self.state
+        else:
+            state = None
+
         for handler in self.handlers:
             handler.handle_batch(messages,
                                  self.contains_activate_version.get(stream, False),
@@ -566,7 +577,7 @@ class TargetStitch:
                                  stream_meta.key_properties,
                                  stream_meta.bookmark_properties,
                                  self.state_writer,
-                                 self.state)
+                                 state)
 
         self.time_last_batch_sent = time.time()
         self.contains_activate_version[stream] = False
@@ -577,9 +588,12 @@ class TargetStitch:
 
     def flush(self):
         flushed = False
+        num_flushed = 0
+        num_streams = len(self.messages)
         for stream, messages in self.messages.items():
+            num_flushed += 1
             if len(messages) > 0:
-                self.flush_stream(stream)
+                self.flush_stream(stream, (num_flushed == num_streams))
                 flushed = True
         # NB> State is usually handled above but in the case there are no messages
         # we still want to ensure state is emitted.
