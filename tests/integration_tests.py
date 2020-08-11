@@ -769,7 +769,7 @@ class BufferingPerStreamConstraints(unittest.TestCase):
              {'action': 'upsert', 'data': {'id': 3, 'name': 'Harrsion'}},
              {'action': 'upsert',
               'data': {'id': 5,
-                       'name': 'Really long name that should force the target to exceed the limit'}}],
+                       'name': 'to force the target to exceed its byte limit'}}],
             [{'action': 'upsert', 'data': {'id': 2, 'name': 'Paul'}},
              {'action': 'upsert', 'data': {'id': 4, 'name': 'The byte limit should be across streams, so lets make lots of data on both streams'}}],
             [{'action': 'upsert', 'data': {'id': 6, 'name': 'A'}},
