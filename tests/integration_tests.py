@@ -851,7 +851,7 @@ class BufferingPerStreamState(unittest.TestCase):
     async def mock_post_coroutine(self, url, headers, data, verify_ssl):
         LOGGER.info("Sending message number %s", self.messages_sent)
         self.messages_sent += 1
-        if self.messages_sent == 3:
+        if self.messages_sent == self.messages_until_error:
             return await self.wait_then_throw()
         else:
             return await self.actual_post_coroutine(url, headers, data, verify_ssl)
@@ -865,6 +865,73 @@ class BufferingPerStreamState(unittest.TestCase):
         # Tests that the target will buffer records per stream. This will
         # allow the tap to alternate which streams it is emitting records
         # for without the target cutting small batches
+        self.messages_until_error = 3
+        target_stitch.OUR_SESSION = FakeSession(mock_in_order_all_200)
+
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 1}}))
+        self.queue.append(json.dumps({"type": "STATE",  "value": {"bookmarks": {"chicken_stream": {"id": 1}}}}))
+
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "zebra_stream", "record": {"id": 1}}))
+        self.queue.append(json.dumps({"type": "STATE",  "value": {"bookmarks": {"chicken_stream": {"id": 1},
+                                                                                "zebra_stream": {"id": 1}}}}))
+
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "dog_stream", "record": {"id": 1}}))
+        self.queue.append(json.dumps({"type": "STATE",  "value": {"bookmarks": {"chicken_stream": {"id": 1},
+                                                                                "zebra_stream": {"id": 1},
+                                                                                "dog_stream": {"id": 1}}}}))
+
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 2}}))
+        self.queue.append(json.dumps({"type": "STATE",  "value": {"bookmarks": {"chicken_stream": {"id": 2},
+                                                                                "zebra_stream": {"id": 1},
+                                                                                "dog_stream": {"id": 1}}}}))
+
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "zebra_stream", "record": {"id": 2}}))
+        self.queue.append(json.dumps({"type": "STATE",  "value": {"bookmarks": {"chicken_stream": {"id": 2},
+                                                                                "zebra_stream": {"id": 2},
+                                                                                "dog_stream": {"id": 1}}}}))
+
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "dog_stream", "record": {"id": 2}}))
+        self.queue.append(json.dumps({"type": "STATE",  "value": {"bookmarks": {"chicken_stream": {"id": 2},
+                                                                                "zebra_stream": {"id": 2},
+                                                                                "dog_stream": {"id": 2}}}}))
+
+
+        self.target_stitch.consume(self.queue)
+
+        try:
+            finish_requests()
+        except:
+            pass
+
+        # There should only be messages for the 2 streams because the
+        # third one should fail due to the mocking code
+        expected_messages = [[{'action': 'upsert', 'data': {'id': 1}},
+                              {'action': 'upsert', 'data': {'id': 2}}],
+                             [{'action': 'upsert', 'data': {'id': 1}},
+                             {'action': 'upsert', 'data': {'id': 2}}]]
+
+        expected_state = ''
+
+        # Should be broken into 2 batches (because the third fails)
+        self.assertEqual(len(target_stitch.OUR_SESSION.messages_sent), 2)
+
+        # Sort by length and remove sequence number to compare directly
+        emitted_state = self.out.getvalue()
+        actual_messages = [[{key: m[key] for key in ["action","data"]} for m in ms]
+                           for ms in sorted(target_stitch.OUR_SESSION.messages_sent, key=lambda ms: len(ms))]
+
+        self.assertEqual(actual_messages, expected_messages)
+        self.assertEqual(emitted_state, expected_state)
+
+
+
+
+
+    def test_state_interleaving_works_with_error_on_first(self):
+        '''Test that the target will not emit state if the first stream to be
+        batched fails '''
+
+        self.messages_until_error = 1
         target_stitch.OUR_SESSION = FakeSession(mock_in_order_all_200)
 
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 1}}))

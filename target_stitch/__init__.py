@@ -581,19 +581,27 @@ class TargetStitch:
 
         self.time_last_batch_sent = time.time()
         self.contains_activate_version[stream] = False
-        self.state = None
         self.buffer_size_bytes[stream] = 0
         self.messages[stream] = []
+        # NB: We can only clear the state if this is the final stream
+        # flush. Otherwise we risk clearing out the state before we can
+        # even send it.
+        if is_final_stream:
+            self.state = None
 
 
     def flush(self):
         flushed = False
+
+        # Have to keep track of how many streams we have looked at so we
+        # know when we are flushing the final stream
         num_flushed = 0
         num_streams = len(self.messages)
         for stream, messages in self.messages.items():
             num_flushed += 1
             if len(messages) > 0:
-                self.flush_stream(stream, (num_flushed == num_streams))
+                is_final_stream = num_flushed == num_streams
+                self.flush_stream(stream, is_final_stream)
                 flushed = True
         # NB> State is usually handled above but in the case there are no messages
         # we still want to ensure state is emitted.
