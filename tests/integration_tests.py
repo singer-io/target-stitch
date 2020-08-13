@@ -707,10 +707,14 @@ class BufferingPerStreamConstraints(unittest.TestCase):
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 5, "name": "Dan"}}))
         self.queue.append(json.dumps({"type": "RECORD", "stream": "zebra_stream", "record": {"id": 6, "name": "A"}}))
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 7, "name": "B"}}))
+        self.queue.append(json.dumps({"type": "STATE",  "value": {"bookmarks": {"chicken_stream": {"id": 7},
+                                                                                "zebra_stream": {"id": 6}}}}))
         # Should flush here
         self.queue.append(json.dumps({"type": "RECORD", "stream": "zebra_stream", "record": {"id": 8, "name": "C"}}))
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 9, "name": "D"}}))
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 10, "name": "E"}}))
+        self.queue.append(json.dumps({"type": "STATE",  "value": {"bookmarks": {"chicken_stream": {"id": 10},
+                                                                                "zebra_stream": {"id": 8}}}}))
         # Should flush here
 
         self.target_stitch.consume(self.queue)
@@ -738,13 +742,20 @@ class BufferingPerStreamConstraints(unittest.TestCase):
              {'action': 'upsert',
               'data': {'id': 7, 'name': 'B'}},]]
 
+        expected_state = [{"bookmarks": {"zebra_stream": {"id": 8}, "chicken_stream": {"id": 10}}}]
+
         # Should be broken into 4 batches
         self.assertEqual(len(target_stitch.OUR_SESSION.messages_sent), 4)
 
         # Sort by length and remove sequence number to compare directly
         actual_messages = [[{key: m[key] for key in ["action","data"]} for m in ms]
                            for ms in sorted(target_stitch.OUR_SESSION.messages_sent, key=lambda ms: len(ms))]
+
+        actual_state = list(map(lambda x: simplejson.loads(x, use_decimal=True), self.out.getvalue().strip().split('\n')))
+
         self.assertEqual(actual_messages, expected_messages)
+        self.assertEqual(actual_state, expected_state)
+
 
     def test_flush_based_on_bytes(self):
         target_stitch.OUR_SESSION = FakeSession(mock_in_order_all_200)
@@ -755,10 +766,14 @@ class BufferingPerStreamConstraints(unittest.TestCase):
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 5, "name": "to force the target to exceed its byte limit"}}))
         self.queue.append(json.dumps({"type": "RECORD", "stream": "zebra_stream", "record": {"id": 6, "name": "A"}}))
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 7, "name": "B"}}))
+        self.queue.append(json.dumps({"type": "STATE",  "value": {"bookmarks": {"chicken_stream": {"id": 7},
+                                                                                "zebra_stream": {"id": 6}}}}))
         # Should flush here
         self.queue.append(json.dumps({"type": "RECORD", "stream": "zebra_stream", "record": {"id": 8, "name": "C"}}))
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 9, "name": "D"}}))
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 10, "name": "E"}}))
+        self.queue.append(json.dumps({"type": "STATE",  "value": {"bookmarks": {"chicken_stream": {"id": 10},
+                                                                                "zebra_stream": {"id": 8}}}}))
         # Should flush here
 
         self.target_stitch.consume(self.queue)
@@ -778,6 +793,9 @@ class BufferingPerStreamConstraints(unittest.TestCase):
              {'action': 'upsert', 'data': {'id': 9, 'name': 'D'}},
              {'action': 'upsert', 'data': {'id': 10, 'name': 'E'}}]]
 
+
+        expected_state = [{"bookmarks": {"zebra_stream": {"id": 8}, "chicken_stream": {"id": 10}}}]
+
         # Should be broken into 4 batches
         self.assertEqual(len(target_stitch.OUR_SESSION.messages_sent), 4)
 
@@ -785,10 +803,13 @@ class BufferingPerStreamConstraints(unittest.TestCase):
         actual_messages = [[{key: m[key] for key in ["action","data"]} for m in ms]
                            for ms in sorted(target_stitch.OUR_SESSION.messages_sent, key=lambda ms: ms[0]['data']['id'])]
 
+        actual_state = list(map(lambda x: simplejson.loads(x, use_decimal=True), self.out.getvalue().strip().split('\n')))
+
         self.assertEqual(actual_messages, expected_messages)
+        self.assertEqual(actual_state, expected_state)
 
 
-class BufferingPerStreamState(unittest.TestCase):
+class BufferingPerStreamNoStateOnFailure(unittest.TestCase):
     def setUp(self):
         self.maxDiff = None
         token = None
