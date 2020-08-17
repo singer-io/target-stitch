@@ -527,9 +527,9 @@ class TargetStitch:
                  max_batch_bytes,
                  max_batch_records,
                  batch_delay_seconds):
-        self.messages = []
-        self.contains_activate_version = False
-        self.buffer_size_bytes = 0
+        self.messages = {}
+        self.contains_activate_version = {}
+        self.buffer_size_bytes = {}
         self.state = None
 
         # Mapping from stream name to {'schema': ..., 'key_names': ..., 'bookmark_names': ... }
@@ -554,33 +554,63 @@ class TargetStitch:
 
 
 
-    def flush(self):
+    def flush_stream(self, stream, is_final_stream):
         '''Send all the buffered messages to Stitch.'''
 
-        if self.messages:
-            stream_meta = self.stream_meta[self.messages[0].stream]
-            for handler in self.handlers:
-                handler.handle_batch(self.messages,
-                                     self.contains_activate_version,
-                                     stream_meta.schema,
-                                     stream_meta.key_properties,
-                                     stream_meta.bookmark_properties,
-                                     self.state_writer,
-                                     self.state)
+        messages = self.messages[stream]
+        stream_meta = self.stream_meta[stream]
 
-            self.time_last_batch_sent = time.time()
-            self.messages = []
-            self.contains_activate_version = False
+        # NB: We only want to include the state on the final stream we are
+        # batching because this will prevent the state from flushing until
+        # all of the streams are flushed because the state is global for
+        # all streams so if one of the streams fails to batch we cannot
+        # flush the state
+        if is_final_stream:
+            state = self.state
+        else:
+            state = None
+
+        for handler in self.handlers:
+            handler.handle_batch(messages,
+                                 self.contains_activate_version.get(stream, False),
+                                 stream_meta.schema,
+                                 stream_meta.key_properties,
+                                 stream_meta.bookmark_properties,
+                                 self.state_writer,
+                                 state)
+
+        self.time_last_batch_sent = time.time()
+        self.contains_activate_version[stream] = False
+        self.buffer_size_bytes[stream] = 0
+        self.messages[stream] = []
+        # NB: We can only clear the state if this is the final stream
+        # flush. Otherwise we risk clearing out the state before we can
+        # even send it.
+        if is_final_stream:
             self.state = None
-            self.buffer_size_bytes = 0
 
+
+    def flush(self):
+        flushed = False
+
+        # Have to keep track of how many streams we have looked at so we
+        # know when we are flushing the final stream
+        num_flushed = 0
+        num_streams = len(self.messages)
+        for stream, messages in self.messages.items():
+            num_flushed += 1
+            if len(messages) > 0:
+                is_final_stream = num_flushed == num_streams
+                self.flush_stream(stream, is_final_stream)
+                flushed = True
         # NB> State is usually handled above but in the case there are no messages
         # we still want to ensure state is emitted.
-        elif self.state:
+        if not flushed and self.state:
             for handler in self.handlers:
                 handler.handle_state_only(self.state_writer, self.state)
             self.state = None
             TIMINGS.log_timings()
+
 
 
     def handle_line(self, line):
@@ -599,24 +629,28 @@ class TargetStitch:
         if isinstance(message, singer.SchemaMessage):
             self.flush()
 
+            if message.stream not in self.messages:
+                self.messages[message.stream] = []
             self.stream_meta[message.stream] = StreamMeta(
                 message.schema,
                 message.key_properties,
                 message.bookmark_properties)
 
         elif isinstance(message, (singer.RecordMessage, singer.ActivateVersionMessage)):
-            if self.messages and (
-                    message.stream != self.messages[0].stream or
-                    message.version != self.messages[0].version):
+            current_stream = message.stream
+            # NB> This previously would flush on a stream change. Because
+            # we are now buffering records across streams we do not need
+            # to flush on stream change
+            if self.messages[current_stream] and (message.version != self.messages[current_stream][0].version):
                 self.flush()
 
-            self.messages.append(message)
-            self.buffer_size_bytes += len(line)
+            self.messages[current_stream].append(message)
+            self.buffer_size_bytes[current_stream] = self.buffer_size_bytes.get(current_stream, 0) + len(line)
             if isinstance(message, singer.ActivateVersionMessage):
-                self.contains_activate_version = True
+                self.contains_activate_version[current_stream] = True
 
-            num_bytes = self.buffer_size_bytes
-            num_messages = len(self.messages)
+            num_bytes = sum(self.buffer_size_bytes.values())
+            num_messages = sum((len(messages) for messages in self.messages.values()))
             num_seconds = time.time() - self.time_last_batch_sent
 
             enough_bytes = num_bytes >= self.max_batch_bytes
@@ -636,7 +670,8 @@ class TargetStitch:
 
             if num_seconds >= self.batch_delay_seconds:
                 LOGGER.debug('Flushing %d bytes, %d messages, after %.2f seconds',
-                             self.buffer_size_bytes, len(self.messages), num_seconds)
+                             sum(self.buffer_size_bytes.values()),
+                             sum(len(messages) for messages in self.messages.values()), num_seconds)
                 self.flush()
                 self.time_last_batch_sent = time.time()
 
