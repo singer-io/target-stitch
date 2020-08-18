@@ -1,5 +1,8 @@
 # Changelog
 
+## 3.1.0
+  * Buffer records per stream so that changing streams does not flush records [#94](https://github.com/singer-io/target-stitch/pull/94)
+
 ## 3.0.3
   * Generates sequence numbers based on nanosecond time to avoid collisions with small, async batches [#90](https://github.com/singer-io/target-stitch/pull/90)
 
