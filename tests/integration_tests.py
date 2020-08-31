@@ -1008,10 +1008,6 @@ class BufferingPerStreamNoStateOnFailure(unittest.TestCase):
 
         expected_state = ''
 
-        # Should be broken into 2 batches (because the third fails)
-        LOGGER.info("MESSAGES SENT:")
-        LOGGER.info(target_stitch.OUR_SESSION.messages_sent)
-
         self.assertEqual(len(target_stitch.OUR_SESSION.messages_sent), 2)
 
         # Sort by length and remove sequence number to compare directly
