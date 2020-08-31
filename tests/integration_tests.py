@@ -884,6 +884,8 @@ class BufferingPerStreamConstraints(unittest.TestCase):
 
 class BufferingPerStreamNoStateOnFailure(unittest.TestCase):
     def setUp(self):
+        import time
+        time.sleep(20)
         self.maxDiff = None
         token = None
         handler = StitchHandler(target_stitch.DEFAULT_MAX_BATCH_BYTES, 3)
