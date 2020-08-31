@@ -410,7 +410,7 @@ class ValidatingHandler: # pylint: disable=too-few-public-methods
                                         i, k))
                 except Exception as e:
                     raise TargetStitchException(
-                        'Record does not pass schema validation: {}'.format(e))
+                        'Record does not pass schema validation: {}'.format(e)) from e
 
         # pylint: disable=undefined-loop-variable
         # NB: This seems incorrect as there's a chance message is not defined
@@ -798,11 +798,11 @@ def check_send_exception():
     except StitchClientResponseError as exc:
         try:
             msg = "{}: {}".format(str(exc.status), exc.response_body)
-        except: # pylint: disable=bare-except
+        except Exception as e: # pylint: disable=bare-except
             LOGGER.exception('Exception while processing error response')
             msg = '{}'.format(exc)
         raise TargetStitchException('Error persisting data to Stitch: ' +
-                                    msg)
+                                    msg) from e
 
     # A ClientConnectorErrormeans we
     # couldn't even connect to stitch. The exception is likely
@@ -810,10 +810,10 @@ def check_send_exception():
     # include the summary in the critical error message.
     except ClientConnectorError as exc:
         LOGGER.exception(exc)
-        raise TargetStitchException('Error connecting to Stitch')
+        raise TargetStitchException('Error connecting to Stitch') from exc
 
     except concurrent.futures._base.TimeoutError as exc: #pylint: disable=protected-access
-        raise TargetStitchException("Timeout sending to Stitch")
+        raise TargetStitchException("Timeout sending to Stitch") from exc
 
 
 def exception_is_4xx(ex):
@@ -832,7 +832,7 @@ async def post_coroutine(url, headers, data, verify_ssl):
         try:
             result_body = await response.json()
         except BaseException as ex: #pylint: disable=unused-variable
-            raise StitchClientResponseError(response.status, "unable to parse response body as json")
+            raise StitchClientResponseError(response.status, "unable to parse response body as json") from ex
 
         if response.status // 100 != 2:
             raise StitchClientResponseError(response.status, result_body)
