@@ -802,7 +802,7 @@ def check_send_exception():
             LOGGER.exception('Exception while processing error response')
             msg = '{}'.format(exc)
         raise TargetStitchException('Error persisting data to Stitch: ' +
-                                    msg) from e
+                                    msg) from exc
 
     # A ClientConnectorErrormeans we
     # couldn't even connect to stitch. The exception is likely
