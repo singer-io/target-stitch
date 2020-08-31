@@ -798,7 +798,7 @@ def check_send_exception():
     except StitchClientResponseError as exc:
         try:
             msg = "{}: {}".format(str(exc.status), exc.response_body)
-        except Exception as e: # pylint: disable=bare-except
+        except Exception: # pylint: disable=bare-except
             LOGGER.exception('Exception while processing error response')
             msg = '{}'.format(exc)
         raise TargetStitchException('Error persisting data to Stitch: ' +
