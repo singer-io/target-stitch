@@ -8,6 +8,7 @@ import json
 import asyncio
 import simplejson
 import collections
+import time
 from decimal import Decimal
 try:
     from tests.gate_mocks import (
@@ -884,7 +885,6 @@ class BufferingPerStreamConstraints(unittest.TestCase):
 
 class BufferingPerStreamNoStateOnFailure(unittest.TestCase):
     def setUp(self):
-        import time
         time.sleep(20)
         self.maxDiff = None
         token = None
