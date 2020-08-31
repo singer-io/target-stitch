@@ -591,21 +591,18 @@ class TargetStitch:
 
 
     def flush(self):
-        flushed = False
-
         # Have to keep track of how many streams we have looked at so we
         # know when we are flushing the final stream
+        messages_to_flush = { stream: messages for stream, messages in self.messages.items() if len(messages) > 0 }
         num_flushed = 0
-        num_streams = len(self.messages)
-        for stream, messages in self.messages.items():
+        num_streams = len(messages_to_flush)
+        for stream, messages in messages_to_flush.items():
             num_flushed += 1
-            if len(messages) > 0:
-                is_final_stream = num_flushed == num_streams
-                self.flush_stream(stream, is_final_stream)
-                flushed = True
+            is_final_stream = num_flushed == num_streams
+            self.flush_stream(stream, is_final_stream)
         # NB> State is usually handled above but in the case there are no messages
         # we still want to ensure state is emitted.
-        if not flushed and self.state:
+        if num_flushed == 0 and self.state:
             for handler in self.handlers:
                 handler.handle_state_only(self.state_writer, self.state)
             self.state = None
