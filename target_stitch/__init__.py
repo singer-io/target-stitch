@@ -410,7 +410,7 @@ class ValidatingHandler: # pylint: disable=too-few-public-methods
                                         i, k))
                 except Exception as e:
                     raise TargetStitchException(
-                        'Record does not pass schema validation: {}'.format(e))
+                        'Record does not pass schema validation: {}'.format(e)) from e
 
         # pylint: disable=undefined-loop-variable
         # NB: This seems incorrect as there's a chance message is not defined
@@ -591,21 +591,18 @@ class TargetStitch:
 
 
     def flush(self):
-        flushed = False
-
         # Have to keep track of how many streams we have looked at so we
         # know when we are flushing the final stream
+        messages_to_flush = { stream: messages for stream, messages in self.messages.items() if len(messages) > 0 }
         num_flushed = 0
-        num_streams = len(self.messages)
-        for stream, messages in self.messages.items():
+        num_streams = len(messages_to_flush)
+        for stream, messages in messages_to_flush.items():
             num_flushed += 1
-            if len(messages) > 0:
-                is_final_stream = num_flushed == num_streams
-                self.flush_stream(stream, is_final_stream)
-                flushed = True
+            is_final_stream = num_flushed == num_streams
+            self.flush_stream(stream, is_final_stream)
         # NB> State is usually handled above but in the case there are no messages
         # we still want to ensure state is emitted.
-        if not flushed and self.state:
+        if num_flushed == 0 and self.state:
             for handler in self.handlers:
                 handler.handle_state_only(self.state_writer, self.state)
             self.state = None
@@ -801,11 +798,11 @@ def check_send_exception():
     except StitchClientResponseError as exc:
         try:
             msg = "{}: {}".format(str(exc.status), exc.response_body)
-        except: # pylint: disable=bare-except
+        except Exception: # pylint: disable=bare-except
             LOGGER.exception('Exception while processing error response')
             msg = '{}'.format(exc)
         raise TargetStitchException('Error persisting data to Stitch: ' +
-                                    msg)
+                                    msg) from exc
 
     # A ClientConnectorErrormeans we
     # couldn't even connect to stitch. The exception is likely
@@ -813,10 +810,10 @@ def check_send_exception():
     # include the summary in the critical error message.
     except ClientConnectorError as exc:
         LOGGER.exception(exc)
-        raise TargetStitchException('Error connecting to Stitch')
+        raise TargetStitchException('Error connecting to Stitch') from exc
 
     except concurrent.futures._base.TimeoutError as exc: #pylint: disable=protected-access
-        raise TargetStitchException("Timeout sending to Stitch")
+        raise TargetStitchException("Timeout sending to Stitch") from exc
 
 
 def exception_is_4xx(ex):
@@ -835,7 +832,7 @@ async def post_coroutine(url, headers, data, verify_ssl):
         try:
             result_body = await response.json()
         except BaseException as ex: #pylint: disable=unused-variable
-            raise StitchClientResponseError(response.status, "unable to parse response body as json")
+            raise StitchClientResponseError(response.status, "unable to parse response body as json") from ex
 
         if response.status // 100 != 2:
             raise StitchClientResponseError(response.status, result_body)

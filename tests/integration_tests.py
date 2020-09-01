@@ -7,6 +7,8 @@ import os
 import json
 import asyncio
 import simplejson
+import collections
+import time
 from decimal import Decimal
 try:
     from tests.gate_mocks import (
@@ -809,8 +811,81 @@ class BufferingPerStreamConstraints(unittest.TestCase):
         self.assertEqual(actual_state, expected_state)
 
 
+    def test_state_works_when_streams_with_no_messages(self):
+        # Test that target_stitch will emit state messages for a stream
+        # even if the final stream in self.messages does not contain any
+        # messages
+        target_stitch.OUR_SESSION = FakeSession(mock_in_order_all_200)
+        self.target_stitch.messages = collections.OrderedDict(self.target_stitch.messages)
+
+        self.queue.append(json.dumps({
+                "type": "SCHEMA",
+                "stream": "lion_stream",
+                "key_properties": ["id"],
+                "schema": {"type": "object",
+                           "properties": {"id": {"type": "integer"},
+                                          "name": {"type": "string"}}}}))
+
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 1, "name": "Mike"}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "zebra_stream", "record": {"id": 2, "name": "Paul"}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 3, "name": "Harrsion"}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "zebra_stream", "record": {"id": 4, "name": "Cathy"}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 5, "name": "Dan"}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "zebra_stream", "record": {"id": 6, "name": "A"}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 7, "name": "B"}}))
+        self.queue.append(json.dumps({"type": "STATE",  "value": {"bookmarks": {"chicken_stream": {"id": 7},
+                                                                                "zebra_stream": {"id": 6}}}}))
+        # Should flush here
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "zebra_stream", "record": {"id": 8, "name": "C"}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 9, "name": "D"}}))
+        self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "record": {"id": 10, "name": "E"}}))
+        self.queue.append(json.dumps({"type": "STATE",  "value": {"bookmarks": {"chicken_stream": {"id": 10},
+                                                                                "zebra_stream": {"id": 8}}}}))
+        # Should flush here
+
+        self.target_stitch.consume(self.queue)
+        finish_requests()
+
+        expected_messages = [
+            [{'action': 'upsert',
+              'data': {'id': 8, 'name': 'C'}}],
+            [{'action': 'upsert',
+              'data': {'id': 9, 'name': 'D'}},
+             {'action': 'upsert',
+              'data': {'id': 10, 'name': 'E'}}],
+            [{'action': 'upsert',
+              'data': {'id': 2, 'name': 'Paul'}},
+             {'action': 'upsert',
+              'data': {'id': 4, 'name': 'Cathy'}},
+             {'action': 'upsert',
+              'data': {'id': 6, 'name': 'A'}}],
+            [{'action': 'upsert',
+              'data': {'id': 1, 'name': 'Mike'}},
+             {'action': 'upsert',
+              'data': {'id': 3, 'name': 'Harrsion'}},
+             {'action': 'upsert',
+              'data': {'id': 5, 'name': 'Dan'}},
+             {'action': 'upsert',
+              'data': {'id': 7, 'name': 'B'}},]]
+
+        expected_state = [{"bookmarks": {"zebra_stream": {"id": 8}, "chicken_stream": {"id": 10}}}]
+
+        # Should be broken into 4 batches
+        self.assertEqual(len(target_stitch.OUR_SESSION.messages_sent), 4)
+
+        # Sort by length and remove sequence number to compare directly
+        actual_messages = [[{key: m[key] for key in ["action","data"]} for m in ms]
+                           for ms in sorted(target_stitch.OUR_SESSION.messages_sent, key=lambda ms: len(ms))]
+
+        actual_state = list(map(lambda x: simplejson.loads(x, use_decimal=True), self.out.getvalue().strip().split('\n')))
+
+        self.assertEqual(actual_messages, expected_messages)
+        self.assertEqual(actual_state, expected_state)
+
+
 class BufferingPerStreamNoStateOnFailure(unittest.TestCase):
     def setUp(self):
+        time.sleep(20)
         self.maxDiff = None
         token = None
         handler = StitchHandler(target_stitch.DEFAULT_MAX_BATCH_BYTES, 3)
@@ -929,11 +1004,10 @@ class BufferingPerStreamNoStateOnFailure(unittest.TestCase):
         expected_messages = [[{'action': 'upsert', 'data': {'id': 1}},
                               {'action': 'upsert', 'data': {'id': 2}}],
                              [{'action': 'upsert', 'data': {'id': 1}},
-                             {'action': 'upsert', 'data': {'id': 2}}]]
+                              {'action': 'upsert', 'data': {'id': 2}}]]
 
         expected_state = ''
 
-        # Should be broken into 2 batches (because the third fails)
         self.assertEqual(len(target_stitch.OUR_SESSION.messages_sent), 2)
 
         # Sort by length and remove sequence number to compare directly
