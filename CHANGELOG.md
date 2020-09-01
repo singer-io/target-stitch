@@ -1,5 +1,8 @@
 # Changelog
 
+## 3.1.1
+  * Fix a bug related to buffering records per stream that would cause state to not be emitted during certain edge conditions [#96](https://github.com/singer-io/target-stitch/pull/96)
+
 ## 3.1.0
   * Buffer records per stream so that changing streams does not flush records [#94](https://github.com/singer-io/target-stitch/pull/94)
 
