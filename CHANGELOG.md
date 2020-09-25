@@ -1,5 +1,8 @@
 # Changelog
 
+## 3.2.0
+  * Log how many records appear in a batch and note the number of bytes [#98](https://github.com/singer-io/target-stitch/pull/98)
+
 ## 3.1.1
   * Fix a bug related to buffering records per stream that would cause state to not be emitted during certain edge conditions [#96](https://github.com/singer-io/target-stitch/pull/96)
 
