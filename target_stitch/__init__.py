@@ -37,6 +37,7 @@ import pkg_resources
 import backoff
 
 import singer
+from singer import metrics
 import ciso8601
 
 LOGGER = singer.get_logger().getChild('target_stitch')
@@ -334,6 +335,12 @@ class StitchHandler: # pylint: disable=too-few-public-methods
                     flushable_state = state
 
                 self.send(body, contains_activate_version, state_writer, flushable_state, stitch_url)
+
+        # Write a singer.metrics.Counter and set the value to the count of records being sent
+        with metrics.Counter(metrics.Metric.record_count, tags={"endpoint": messages[0].stream,
+                                                                "num_bytes": sum([len(body) for body in bodies])}) as c:
+            c.value = len([m for m in messages if isinstance(m, singer.RecordMessage)])
+
 
 
 class LoggingHandler:  # pylint: disable=too-few-public-methods
