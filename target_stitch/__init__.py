@@ -335,6 +335,17 @@ class StitchHandler: # pylint: disable=too-few-public-methods
 
                 self.send(body, contains_activate_version, state_writer, flushable_state, stitch_url)
 
+        record_count_metric = {
+            "type": "counter",
+            "metric": "record_count",
+            "value": len([m for m in messages if isinstance(m, singer.RecordMessage)]),
+            "tags": {
+                "endpoint": messages[0].stream,
+                "num_bytes": sum([len(body) for body in bodies])
+            },
+        }
+        LOGGER.info('METRIC: %s', json.dumps(record_count_metric))
+
 
 class LoggingHandler:  # pylint: disable=too-few-public-methods
     '''Logs records to a local output file.'''
