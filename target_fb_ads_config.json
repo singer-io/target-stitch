@@ -1,6 +1,6 @@
 {
-"client_id": 3, 
-"token": "some-token",
+"client_id": "STITCH_FB_ADS_CLIENT_ID", 
+"token": "STITCH_FB_ADS_TOKEN",
 "small_batch_url": "https://api.stitchdata.com/v2/import/batch",
 "big_batch_url": "https://api.stitchdata.com/v2/import/batch",
 "batch_size_preferences": {}

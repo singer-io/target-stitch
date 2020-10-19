@@ -206,7 +206,7 @@ class StitchHandler: # pylint: disable=too-few-public-methods
     '''Sends messages to Stitch.'''
 
     def __init__(self, max_batch_bytes, max_batch_records):
-        self.token = CONFIG.get('token')
+        self.token = os.environ.get(CONFIG.get('token'))
         self.max_batch_bytes = max_batch_bytes
         self.max_batch_records = max_batch_records
 
