@@ -3,9 +3,9 @@ version: 2.1
 workflows:
   build:
     jobs:
-      build:
-        context:
-          - stitch-circleci-user
+      - build:
+          context:
+            - circleci-user
 
 jobs:
   build:
