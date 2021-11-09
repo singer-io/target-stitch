@@ -1,6 +1,6 @@
 # Changelog
 
-## 3.3.0
+## 3.2.1
   * Updated dependencies to support Python 3.9.6, deprecated support for Python 3.5.X. [#104](https://github.com/singer-io/target-stitch/pull/104)
 
 ## 3.2.0
