@@ -16,6 +16,7 @@ jobs:
       - run:
           name: 'Setup virtualenv'
           command: |
+            pyenv global 3.9.6
             mkdir -p ~/.virtualenvs
             python3 -m venv ~/.virtualenvs/target-stitch
             source ~/.virtualenvs/target-stitch/bin/activate
