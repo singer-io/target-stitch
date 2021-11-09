@@ -1,5 +1,8 @@
 # Changelog
 
+## 3.3.0
+  * Updated dependencies to support Python 3.9.6, deprecated support for Python 3.5.X. [#104](https://github.com/singer-io/target-stitch/pull/104)
+
 ## 3.2.0
   * Log how many records appear in a batch and note the number of bytes [#98](https://github.com/singer-io/target-stitch/pull/98)
 
