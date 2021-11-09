@@ -238,7 +238,7 @@ class StitchHandler: # pylint: disable=too-few-public-methods
                     #if this were None, we would have just nuked the client's state
                     if s:
                         line = simplejson.dumps(s)
-                        state_writer.write("{}\n".format(line))
+                        state_writer.write(f"{line}\n")
                         state_writer.flush()
                 else:
                     break
@@ -252,7 +252,7 @@ class StitchHandler: # pylint: disable=too-few-public-methods
     def headers(self):
         '''Return the headers based on the token'''
         return {
-            'Authorization': 'Bearer {}'.format(self.token),
+            'Authorization': f'Bearer {self.token}'),
             'Content-Type': 'application/json'
         }
 
@@ -355,7 +355,7 @@ class LoggingHandler:  # pylint: disable=too-few-public-methods
         LOGGER.info("LoggingHandler handle_state_only: %s", state)
         if state:
             line = simplejson.dumps(state)
-            state_writer.write("{}\n".format(line))
+            state_writer.write(f"{line}\n")
             state_writer.flush()
 
 
@@ -382,7 +382,7 @@ class LoggingHandler:  # pylint: disable=too-few-public-methods
 
         if state:
             line = simplejson.dumps(state)
-            state_writer.write("{}\n".format(line))
+            state_writer.write(f"{line}\n")
             state_writer.flush()
 
 
@@ -398,7 +398,7 @@ class ValidatingHandler: # pylint: disable=too-few-public-methods
         LOGGER.info("ValidatingHandler handle_state_only: %s", state)
         if state:
             line = simplejson.dumps(state)
-            state_writer.write("{}\n".format(line))
+            state_writer.write(f"{line}\n")
             state_writer.flush()
 
     def handle_batch(self, messages, contains_activate_version, schema, key_names, bookmark_names=None, state_writer=None, state=None): # pylint: disable=no-self-use,unused-argument
@@ -413,11 +413,11 @@ class ValidatingHandler: # pylint: disable=too-few-public-methods
                         for k in key_names:
                             if k not in message.record:
                                 raise TargetStitchException(
-                                    'Message {} is missing key property {}'.format(
-                                        i, k))
+                                    f'Message {i} is missing key property {k}'
+                                )
                 except Exception as e:
                     raise TargetStitchException(
-                        'Record does not pass schema validation: {}'.format(e)) from e
+                        f'Record does not pass schema validation: {e}') from e
 
         # pylint: disable=undefined-loop-variable
         # NB: This seems incorrect as there's a chance message is not defined
@@ -426,7 +426,7 @@ class ValidatingHandler: # pylint: disable=too-few-public-methods
                     len(messages))
         if state:
             line = simplejson.dumps(state)
-            state_writer.write("{}\n".format(line))
+            state_writer.write(f"{line}\n")
             state_writer.flush()
 
 def generate_sequence(message_num, max_records):
@@ -510,8 +510,8 @@ def serialize(messages, schema, key_names, bookmark_names, max_bytes, max_record
         if len(serialized) < BIGBATCH_MAX_BATCH_BYTES:
             return [serialized]
         raise BatchTooLargeException(
-            "A single record is larger than the Stitch API limit of {} Mb".format(
-                BIGBATCH_MAX_BATCH_BYTES // 1000000))
+            f"A single record is larger than the Stitch API limit of {BIGBATCH_MAX_BATCH_BYTES // 1000000} Mb"
+        )
 
 
     pivot = len(messages) // 2
@@ -804,10 +804,10 @@ def check_send_exception():
     # stringified response.
     except StitchClientResponseError as exc:
         try:
-            msg = "{}: {}".format(str(exc.status), exc.response_body)
+            msg = f"{str(exc.status)}: {exc.response_body}")
         except Exception: # pylint: disable=bare-except
             LOGGER.exception('Exception while processing error response')
-            msg = '{}'.format(exc)
+            msg = f'{exc}'
         raise TargetStitchException('Error persisting data to Stitch: ' +
                                     msg) from exc
 
@@ -848,7 +848,7 @@ async def post_coroutine(url, headers, data, verify_ssl):
 
 def _required_key(msg, k):
     if k not in msg:
-        raise Exception("Message is missing required key '{}': {}".format(k, msg))
+        raise Exception(f"Message is missing required key '{k}': {msg}")
 
     return msg[k]
 
