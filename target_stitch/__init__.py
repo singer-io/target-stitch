@@ -252,7 +252,7 @@ class StitchHandler: # pylint: disable=too-few-public-methods
     def headers(self):
         '''Return the headers based on the token'''
         return {
-            'Authorization': f'Bearer {self.token}'),
+            'Authorization': f'Bearer {self.token}',
             'Content-Type': 'application/json'
         }
 
@@ -804,7 +804,7 @@ def check_send_exception():
     # stringified response.
     except StitchClientResponseError as exc:
         try:
-            msg = f"{str(exc.status)}: {exc.response_body}")
+            msg = f"{str(exc.status)}: {exc.response_body}"
         except Exception: # pylint: disable=bare-except
             LOGGER.exception('Exception while processing error response')
             msg = f'{exc}'
