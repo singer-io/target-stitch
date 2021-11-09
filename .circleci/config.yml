@@ -1,13 +1,22 @@
-version: 2
+version: 2.1
+
+workflows:
+  build:
+    jobs:
+      - build:
+          context:
+            - circleci-user
+
 jobs:
   build:
     docker:
-      - image: python:3.5.5
+      - image: 218546966473.dkr.ecr.us-east-1.amazonaws.com/sources-python:0.7.0
     steps:
       - checkout
       - run:
           name: 'Setup virtualenv'
           command: |
+            pyenv global 3.9.6
             mkdir -p ~/.virtualenvs
             python3 -m venv ~/.virtualenvs/target-stitch
             source ~/.virtualenvs/target-stitch/bin/activate
@@ -22,4 +31,4 @@ jobs:
             nosetests -v tests/activate_version_tests.py
             nosetests -v --ignore-files=activate_version_tests.py
             #nosetests
-            pylint target_stitch "--extension-pkg-whitelist=ciso8601"
+            pylint target_stitch "--extension-pkg-whitelist=ciso8601" -d global-variable-not-assigned
