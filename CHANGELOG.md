@@ -1,5 +1,8 @@
 # Changelog
 
+## 3.2.2
+  * Dependabot update [#105](https://github.com/singer-io/target-stitch/pull/105)
+
 ## 3.2.1
   * Updated dependencies to support Python 3.9.6, deprecated support for Python 3.5.X. [#104](https://github.com/singer-io/target-stitch/pull/104)
 
