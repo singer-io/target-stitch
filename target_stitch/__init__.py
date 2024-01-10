@@ -350,7 +350,6 @@ class LoggingHandler:  # pylint: disable=too-few-public-methods
         self.max_batch_bytes = max_batch_bytes
         self.max_batch_records = max_batch_records
 
-    # pylint: disable=R0201
     def handle_state_only(self, state_writer=None, state=None):
         LOGGER.info("LoggingHandler handle_state_only: %s", state)
         if state:
@@ -393,7 +392,6 @@ class ValidatingHandler: # pylint: disable=too-few-public-methods
     def __init__(self):
         getcontext().prec = 76
 
-    # pylint: disable=R0201
     def handle_state_only(self, state_writer=None, state=None):
         LOGGER.info("ValidatingHandler handle_state_only: %s", state)
         if state:
@@ -401,7 +399,7 @@ class ValidatingHandler: # pylint: disable=too-few-public-methods
             state_writer.write(f"{line}\n")
             state_writer.flush()
 
-    def handle_batch(self, messages, contains_activate_version, schema, key_names, bookmark_names=None, state_writer=None, state=None): # pylint: disable=no-self-use,unused-argument
+    def handle_batch(self, messages, contains_activate_version, schema, key_names, bookmark_names=None, state_writer=None, state=None):
         '''Handles messages by validating them against schema.'''
         LOGGER.info("ValidatingHandler handle_batch")
         validator = Draft4Validator(schema, format_checker=FormatChecker())
