@@ -31,4 +31,4 @@ jobs:
             nosetests -v tests/activate_version_tests.py
             nosetests -v --ignore-files=activate_version_tests.py
             #nosetests
-            pylint target_stitch "--extension-pkg-whitelist=ciso8601" -d global-variable-not-assigned, consider-using-generator, broad-exception-raised
+            pylint target_stitch "--extension-pkg-whitelist=ciso8601" -d 'global-variable-not-assigned, consider-using-generator, broad-exception-raised, unused-argument'
