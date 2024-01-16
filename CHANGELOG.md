@@ -1,5 +1,9 @@
 # Changelog
 
+## 4.0.0
+  * Bump singer-python to version `6.0.0`, which adds support for python `3.10+` but is no longer compatible with python `3.5` 
+  * Bumps requests and aiohttp libraries to more secure versions [#108](https://github.com/singer-io/target-stitch/pull/108)
+
 ## 3.2.2
   * Remove unused dependencies [#107](https://github.com/singer-io/target-stitch/pull/107)
 
