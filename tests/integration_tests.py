@@ -3,13 +3,16 @@ import singer
 import target_stitch
 from target_stitch import StitchHandler, TargetStitchException, finish_requests
 import io
-import os
+
 import json
 import asyncio
 import simplejson
 import collections
 import time
 from decimal import Decimal
+
+from tests import FakeSession
+
 try:
     from tests.gate_mocks import (
         mock_in_order_all_200,
@@ -42,36 +45,10 @@ LOGGER = singer.get_logger().getChild('target_stitch')
 def fake_check_send_exception():
     return None
 
+
 def load_sample_lines(filename):
     with open('tests/' + filename) as fp:
         return [line for line in fp]
-
-class FakePost:
-    def __init__(self, requests_sent, makeFakeResponse):
-        self.requests_sent = requests_sent
-        self.makeFakeResponse = makeFakeResponse
-
-    async def __aenter__(self):
-        return self.makeFakeResponse(self.requests_sent)
-
-    async def __aexit__(self, exc_type, exc, tb):
-        await asyncio.sleep(1)
-
-class FakeSession:
-    def __init__(self, makeFakeResponse):
-        self.requests_sent = 0
-        self.urls = []
-        self.messages_sent = []
-        self.bodies_sent = []
-        self.makeFakeResponse = makeFakeResponse
-
-    def post(self, url, *, data, **kwargs):
-        data_json = simplejson.loads(data)
-        self.messages_sent.append(data_json["messages"])
-        self.requests_sent = self.requests_sent + 1
-        self.bodies_sent.append(data)
-        self.urls.append(url)
-        return FakePost(self.requests_sent, self.makeFakeResponse)
 
 
 class AsyncSerializeFloats(unittest.TestCase):
@@ -107,7 +84,6 @@ class AsyncSerializeFloats(unittest.TestCase):
             'small_batch_url' : "http://small-batch",
             'big_batch_url' : "http://big-batch",
         }
-
 
     def test_serialize_floats(self):
         floats = [
