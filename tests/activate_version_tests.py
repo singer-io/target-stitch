@@ -54,6 +54,8 @@ class ActivateVersion(unittest.TestCase):
         # request 2 would ordinarily complete first because the mock_out_of_order_all_200, because
         # request 2 contains an ACTIVATE_VERSION, it will not even be sent until request 1 completes
 
+        self.queue.append(
+            json.dumps({"type": "STATE", "value": {"bookmarks": {"chicken_stream": {"id": 0}}}}))
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", "version": 1,
                                       "record": {"id": 1, "name": "Mike"}}))
         # will flush here after 1 record
@@ -62,6 +64,8 @@ class ActivateVersion(unittest.TestCase):
         self.queue.append(json.dumps({"type": "RECORD", "stream": "chicken_stream", 'version': 1,
                                       "record": {"id": 2, "name": "Paul"}}))
         # will flush here after 1 record1
+        self.queue.append(
+            json.dumps({"type": "STATE", "value": {"bookmarks": {"chicken_stream": {"id": 2}}}}))
         self.queue.append(
             json.dumps({"type": "ACTIVATE_VERSION", 'stream': 'chicken_stream', 'version': 1}))
         # will flush here after 1 record1
