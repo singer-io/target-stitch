@@ -22,7 +22,7 @@ setup(name='target-stitch',
       extras_require={
           'dev': [
               'nose==1.3.7',
-              'astroid==2.1.0',
+              'astroid==3.2.4',
               'pylint==3.2.7'
           ]
       },
