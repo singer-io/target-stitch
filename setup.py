@@ -16,14 +16,14 @@ setup(name='target-stitch',
           'singer-python==6.0.0',
           'psutil==5.6.6',
           'simplejson==3.11.1',
-          'aiohttp==3.8.5',
+          'aiohttp==3.10.11',
 	  'ciso8601',
       ],
       extras_require={
           'dev': [
               'nose==1.3.7',
               'astroid==2.1.0',
-              'pylint==2.1.1'
+              'pylint==3.2.7'
           ]
       },
       entry_points='''
