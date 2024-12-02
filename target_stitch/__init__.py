@@ -70,7 +70,7 @@ def start_loop(loop):
     asyncio.set_event_loop(loop)
     global OUR_SESSION
     timeout = aiohttp.ClientTimeout(sock_connect=60, sock_read=60)
-    OUR_SESSION = aiohttp.ClientSession(connector=aiohttp.TCPConnector(), timeout=timeout)
+    OUR_SESSION = aiohttp.ClientSession(connector=aiohttp.TCPConnector(loop=loop), timeout=timeout)
     loop.run_forever()
 
 new_loop = asyncio.new_event_loop()
