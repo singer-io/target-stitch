@@ -12,18 +12,18 @@ setup(name='target-stitch',
       install_requires=[
           'jsonschema==2.6.0',
           'mock==2.0.0',
-          'requests==2.32.0',
+          'requests==2.32.3',
           'singer-python==6.0.0',
           'psutil==5.6.6',
           'simplejson==3.11.1',
-          'aiohttp==3.10.11',
+          'aiohttp==3.11.9',
 	  'ciso8601',
       ],
       extras_require={
           'dev': [
               'nose==1.3.7',
-              'astroid==3.2.4',
-              'pylint==3.2.7'
+              'astroid==2.1.0',
+              'pylint==2.1.1'
           ]
       },
       entry_points='''
