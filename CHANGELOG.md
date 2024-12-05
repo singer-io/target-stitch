@@ -1,5 +1,9 @@
 # Changelog
 
+## 4.0.1
+  * Bump aiohttp from 3.8.5 to 3.11.9
+  * Bump requests from 2.31.0 to 3.32.3 [#112] (https://github.com/singer-io/target-stitch/pull/112)
+
 ## 4.0.0
   * Bump singer-python to version `6.0.0`, which adds support for python `3.10+` but is no longer compatible with python `3.5` 
   * Bumps requests and aiohttp libraries to more secure versions [#108](https://github.com/singer-io/target-stitch/pull/108)
