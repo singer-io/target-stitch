@@ -12,7 +12,7 @@ setup(name='target-stitch',
       install_requires=[
           'jsonschema==2.6.0',
           'mock==2.0.0',
-          'requests==2.32.3',
+          'requests==2.32.4',
           'singer-python==6.0.0',
           'psutil==5.6.6',
           'simplejson==3.11.1',
