@@ -16,7 +16,7 @@ setup(name='target-stitch',
           'singer-python==6.0.0',
           'psutil==5.6.6',
           'simplejson==3.11.1',
-          'aiohttp==3.11.9',
+          'aiohttp==3.12.14',
 	  'ciso8601',
       ],
       extras_require={
