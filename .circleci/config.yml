@@ -10,25 +10,25 @@ workflows:
 jobs:
   build:
     docker:
-      - image: 218546966473.dkr.ecr.us-east-1.amazonaws.com/sources-python:0.7.0
+      - image: 218546966473.dkr.ecr.us-east-1.amazonaws.com/circle-ci:stitch-tap-tester-uv
     steps:
       - checkout
       - run:
           name: 'Setup virtualenv'
           command: |
-            pyenv global 3.9.6
-            mkdir -p ~/.virtualenvs
-            python3 -m venv ~/.virtualenvs/target-stitch
+            uv venv --python 3.12 ~/.virtualenvs/target-stitch
             source ~/.virtualenvs/target-stitch/bin/activate
-            pip install -U pip setuptools
-            pip install -e .[dev]
-            pip install -U pylint
+            uv pip install -U setuptools pytest
+            uv pip install -e .[dev]
+      - run:
+          name: 'pylint'
+          command: |
+            source ~/.virtualenvs/target-stitch/bin/activate
+            pylint target_stitch "--extension-pkg-whitelist=ciso8601" --max-positional-arguments=8 -d 'global-variable-not-assigned, consider-using-generator, broad-exception-raised, unused-argument'
       - run:
           name: 'Run tests'
           command: |
             # Need to re-activate the virtualenv
             source ~/.virtualenvs/target-stitch/bin/activate
-            nosetests -v tests/activate_version_tests.py
-            nosetests -v --ignore-files=activate_version_tests.py
-            #nosetests
-            pylint target_stitch "--extension-pkg-whitelist=ciso8601" --max-positional-arguments=8 -d 'global-variable-not-assigned, consider-using-generator, broad-exception-raised, unused-argument'
+            pytest tests/activate_version_tests.py
+            pytest --ignore-files=activate_version_tests.py
