@@ -31,4 +31,4 @@ jobs:
             # Need to re-activate the virtualenv
             source ~/.virtualenvs/target-stitch/bin/activate
             pytest tests/activate_version_tests.py
-            pytest --ignore-files=activate_version_tests.py
+            pytest --ignore=activate_version_tests.py
