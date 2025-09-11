@@ -440,13 +440,15 @@ def generate_sequence(message_num, max_records):
     Because of this requirement, `message_num` is modulo the difference between nanos
     and millis to maintain 19 characters.
     '''
-    nanosecond_sequence_base = str(int(time.time() * NANOSECOND_SEQUENCE_MULTIPLIER))
+    nanosecond_sequence_base = str(int(time.time() * NANOSECOND_SEQUENCE_MULTIPLIER * 10))
     modulo = NANOSECOND_SEQUENCE_MULTIPLIER / MILLISECOND_SEQUENCE_MULTIPLIER
     zfill_width_mod = len(str(NANOSECOND_SEQUENCE_MULTIPLIER)) - len(str(MILLISECOND_SEQUENCE_MULTIPLIER))
 
     # add an extra order of magnitude to account for the fact that we can
     # actually accept more than the max record count
     fill = len(str(10 * max_records)) - zfill_width_mod
+    modulo = 100
+    fill = 2
     sequence_suffix = str(int(message_num % modulo)).zfill(fill)
 
     return int(nanosecond_sequence_base + sequence_suffix)
