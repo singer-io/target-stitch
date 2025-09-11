@@ -444,12 +444,12 @@ def generate_sequence(message_num, max_records):
     Because of this requirement, `message_num` is modulo a number to maintain 19
     characters.
     '''
-    nanosecond_sequence_base = str(time.time_ns())[0:-3]
-    fill = STANDARD_SEQ_LENGTH - len(nanosecond_sequence_base)
+    microsecond_sequence_base = str(time.time_ns())[0:-3]
+    fill = STANDARD_SEQ_LENGTH - len(microsecond_sequence_base)
     modulo = 10**fill
     sequence_suffix = str(int(message_num % modulo)).zfill(fill)
 
-    return int(nanosecond_sequence_base + sequence_suffix)
+    return int(microsecond_sequence_base + sequence_suffix)
 
 def serialize(messages, schema, key_names, bookmark_names, max_bytes, max_records):
     '''Produces request bodies for Stitch.
