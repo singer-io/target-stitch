@@ -432,7 +432,7 @@ class ValidatingHandler: # pylint: disable=too-few-public-methods
 
 def generate_sequence(message_num, max_records):
     '''
-    Generates a unique sequence number based on the current time in nanoseconds
+    Generates a unique sequence number based on a python monotonic clock in nanoseconds
     with a zero-padded message number based on the index of the record within the
     magnitude of max_records.
 
@@ -440,8 +440,8 @@ def generate_sequence(message_num, max_records):
     Maintains a historical width of 19 characters (with default `max_records`), in order
     to not overflow downstream processes that depend on the width of this number.
 
-    Because of this requirement, `message_num` is modulo the difference between nanos
-    and millis to maintain 19 characters.
+    Because of this requirement, `message_num` is modulo a number to maintain 19
+    characters.
     '''
     nanosecond_sequence_base = str(time.monotonic_ns())
     fill = STANDARD_SEQ_LENGTH - len(nanosecond_sequence_base)
