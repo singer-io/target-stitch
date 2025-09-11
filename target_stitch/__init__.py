@@ -49,6 +49,11 @@ BIGBATCH_MAX_BATCH_BYTES = 20000000
 DEFAULT_MAX_BATCH_BYTES = 4000000
 DEFAULT_MAX_BATCH_RECORDS = 20000
 
+# NB: This is the historical width of the sequence number integer
+# - Generally, it's a combination of (timestamp + padded_row_index) for 19 digits
+# - This should be increased/decreased with care to prevent downstream issues
+STANDARD_SEQ_LENGTH = 19
+
 # This is our singleton aiohttp session
 OUR_SESSION = None
 
@@ -438,9 +443,9 @@ def generate_sequence(message_num, max_records):
     Because of this requirement, `message_num` is modulo the difference between nanos
     and millis to maintain 19 characters.
     '''
-    nanosecond_sequence_base = str(int(time.monotonic_ns() * 100))
-    modulo = 100
-    fill = 2
+    nanosecond_sequence_base = str(time.monotonic_ns())
+    fill = STANDARD_SEQ_LENGTH - len(nanosecond_sequence_base)
+    modulo = 10**fill
     sequence_suffix = str(int(message_num % modulo)).zfill(fill)
 
     return int(nanosecond_sequence_base + sequence_suffix)
