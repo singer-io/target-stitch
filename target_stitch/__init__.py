@@ -9,6 +9,7 @@ import argparse
 import copy
 import gzip
 import http.client
+import importlib.metadata
 import io
 import json
 import os
@@ -689,7 +690,7 @@ def collect():
     '''Send usage info to Stitch.'''
 
     try:
-        version = pkg_resources.get_distribution('target-stitch').version
+        version = importlib.metadata.version('target_stitch')
         conn = http.client.HTTPSConnection('collector.stitchdata.com', timeout=10)
         conn.connect()
         params = {
