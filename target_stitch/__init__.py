@@ -48,7 +48,6 @@ StreamMeta = namedtuple('StreamMeta', ['schema', 'key_properties', 'bookmark_pro
 BIGBATCH_MAX_BATCH_BYTES = 20000000
 DEFAULT_MAX_BATCH_BYTES = 4000000
 DEFAULT_MAX_BATCH_RECORDS = 20000
-NANOSECOND_SEQUENCE_MULTIPLIER = 1000000
 
 # This is our singleton aiohttp session
 OUR_SESSION = None
@@ -439,7 +438,7 @@ def generate_sequence(message_num, max_records):
     Because of this requirement, `message_num` is modulo the difference between nanos
     and millis to maintain 19 characters.
     '''
-    nanosecond_sequence_base = str(int(time.time() * NANOSECOND_SEQUENCE_MULTIPLIER * 10))
+    nanosecond_sequence_base = str(int(time.monotonic_ns() * 100))
     modulo = 100
     fill = 2
     sequence_suffix = str(int(message_num % modulo)).zfill(fill)
