@@ -4,7 +4,8 @@
   * Bump aiohttp from 3.11.9 to 3.12.14
   * Bump requests from 2.32.3 to 2.32.4
   * Updates `generate_sequence` to use a python monotonic clock
-  * Defines `STANDARD_SEQ_LENGTH` in the target instead of tests [#119](https://github.com/singer-io/target-stitch/pull/119)
+  * Defines `STANDARD_SEQ_LENGTH` in the target instead of tests
+  * Replaces use of pkg_resources with importlib.metadata.version [#119](https://github.com/singer-io/target-stitch/pull/119)
 
 ## 4.0.1
   * Bump aiohttp from 3.8.5 to 3.11.9
