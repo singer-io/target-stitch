@@ -443,7 +443,7 @@ def generate_sequence(message_num, max_records):
     Because of this requirement, `message_num` is modulo a number to maintain 19
     characters.
     '''
-    nanosecond_sequence_base = str(time.monotonic_ns())
+    nanosecond_sequence_base = str(time.time_ns())[0:-3]
     fill = STANDARD_SEQ_LENGTH - len(nanosecond_sequence_base)
     modulo = 10**fill
     sequence_suffix = str(int(message_num % modulo)).zfill(fill)
