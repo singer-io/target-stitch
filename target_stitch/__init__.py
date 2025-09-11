@@ -434,7 +434,7 @@ def generate_sequence(message_num, max_records):
     '''
     Generates a unique sequence number based on a python monotonic clock in nanoseconds
     with a zero-padded message number based on the index of the record within the
-    magnitude of max_records. Trims the original sequence base by 3 places to get a
+    magnitude of max_records. Trims the original sequence base by 2 places to get a
     microsecond timestamp from the nanosecond clock.
 
     COMPATIBILITY:
@@ -444,7 +444,7 @@ def generate_sequence(message_num, max_records):
     Because of this requirement, `message_num` is modulo a number to maintain 19
     characters.
     '''
-    microsecond_sequence_base = str(time.time_ns())[0:-3]
+    microsecond_sequence_base = str(time.time_ns())[0:-2]
     fill = STANDARD_SEQ_LENGTH - len(microsecond_sequence_base)
     modulo = 10**fill
     sequence_suffix = str(int(message_num % modulo)).zfill(fill)
