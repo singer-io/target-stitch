@@ -332,12 +332,6 @@ class TestDetermineStitchUrl(unittest.TestCase):
         self.assertEqual(target_stitch.determine_stitch_url('chickens'), big_batch_url)
 
 class TestSequenceNumbers(unittest.TestCase):
-    def setUp(self):
-        # NB: This is the historical width of the sequence number integer
-        # - Generally, it's a combination of (timestamp + padded_row_index) for 19 digits
-        # - This should be increased/decreased with care to prevent downstream issues
-        self.STANDARD_SEQ_LENGTH = 19
-
     def test_generate_sequence_normal_batch(self):
         # Call with a sleep, to simulate the normal case (no ms collisions)
         seq1 = target_stitch.generate_sequence(0,target_stitch.DEFAULT_MAX_BATCH_RECORDS)
@@ -349,7 +343,7 @@ class TestSequenceNumbers(unittest.TestCase):
 
         generated_seqs = [seq1,seq2,seq3]
         # Assert number's width for downstream
-        [self.assertEqual(len(str(s)), self.STANDARD_SEQ_LENGTH) for s in generated_seqs]
+        [self.assertEqual(len(str(s)), target_stitch.STANDARD_SEQ_LENGTH) for s in generated_seqs]
         # Assert they are all at least increasing
         self.assertEqual(generated_seqs, sorted(generated_seqs))
         # Assert no collisions
@@ -365,7 +359,7 @@ class TestSequenceNumbers(unittest.TestCase):
         generated_seqs = [seq1,seq2,seq3]
 
         # Assert number's width for downstream
-        [self.assertEqual(len(str(s)), self.STANDARD_SEQ_LENGTH) for s in generated_seqs]
+        [self.assertEqual(len(str(s)), target_stitch.STANDARD_SEQ_LENGTH) for s in generated_seqs]
         # Assert they are all at least increasing
         self.assertEqual(generated_seqs, sorted(generated_seqs))
         # Assert no collisions
@@ -381,7 +375,7 @@ class TestSequenceNumbers(unittest.TestCase):
                           for i in max_batch]
 
         # Assert number's width for downstream
-        [self.assertEqual(len(str(s)), self.STANDARD_SEQ_LENGTH) for s in generated_seqs]
+        [self.assertEqual(len(str(s)), target_stitch.STANDARD_SEQ_LENGTH) for s in generated_seqs]
         # Assert they are all at least increasing
         self.assertEqual(generated_seqs, sorted(generated_seqs))
         # Assert no collisions
@@ -403,7 +397,7 @@ class TestSequenceNumbers(unittest.TestCase):
         generated_seqs = [target_stitch.generate_sequence(*values) for values in test_case]
 
         # Assert number's width for downstream
-        [self.assertEqual(len(str(s)), self.STANDARD_SEQ_LENGTH) for s in generated_seqs]
+        [self.assertEqual(len(str(s)), target_stitch.STANDARD_SEQ_LENGTH) for s in generated_seqs]
         # Assert they are all at least increasing
         self.assertEqual(generated_seqs, sorted(generated_seqs))
         # Assert no collisions
