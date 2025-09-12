@@ -9,6 +9,7 @@ import argparse
 import copy
 import gzip
 import http.client
+import importlib.metadata
 import io
 import json
 import os
@@ -33,7 +34,6 @@ import aiohttp
 from aiohttp.client_exceptions import ClientConnectorError, ClientResponseError
 
 from jsonschema import ValidationError, Draft4Validator, FormatChecker
-import pkg_resources
 import backoff
 
 import singer
@@ -48,8 +48,11 @@ StreamMeta = namedtuple('StreamMeta', ['schema', 'key_properties', 'bookmark_pro
 BIGBATCH_MAX_BATCH_BYTES = 20000000
 DEFAULT_MAX_BATCH_BYTES = 4000000
 DEFAULT_MAX_BATCH_RECORDS = 20000
-MILLISECOND_SEQUENCE_MULTIPLIER = 1000
-NANOSECOND_SEQUENCE_MULTIPLIER = 1000000
+
+# NB: This is the historical width of the sequence number integer
+# - Generally, it's a combination of (timestamp + padded_row_index) for 19 digits
+# - This should be increased/decreased with care to prevent downstream issues
+STANDARD_SEQ_LENGTH = 19
 
 # This is our singleton aiohttp session
 OUR_SESSION = None
@@ -429,27 +432,24 @@ class ValidatingHandler: # pylint: disable=too-few-public-methods
 
 def generate_sequence(message_num, max_records):
     '''
-    Generates a unique sequence number based on the current time in nanoseconds
+    Generates a unique sequence number based on a python monotonic clock in nanoseconds
     with a zero-padded message number based on the index of the record within the
-    magnitude of max_records.
+    magnitude of max_records. Trims the original sequence base by 2 places to get a
+    microsecond timestamp from the nanosecond clock.
 
     COMPATIBILITY:
     Maintains a historical width of 19 characters (with default `max_records`), in order
     to not overflow downstream processes that depend on the width of this number.
 
-    Because of this requirement, `message_num` is modulo the difference between nanos
-    and millis to maintain 19 characters.
+    Because of this requirement, `message_num` is modulo a number to maintain 19
+    characters.
     '''
-    nanosecond_sequence_base = str(int(time.time() * NANOSECOND_SEQUENCE_MULTIPLIER))
-    modulo = NANOSECOND_SEQUENCE_MULTIPLIER / MILLISECOND_SEQUENCE_MULTIPLIER
-    zfill_width_mod = len(str(NANOSECOND_SEQUENCE_MULTIPLIER)) - len(str(MILLISECOND_SEQUENCE_MULTIPLIER))
-
-    # add an extra order of magnitude to account for the fact that we can
-    # actually accept more than the max record count
-    fill = len(str(10 * max_records)) - zfill_width_mod
+    microsecond_sequence_base = str(time.time_ns())[0:-2]
+    fill = STANDARD_SEQ_LENGTH - len(microsecond_sequence_base)
+    modulo = 10**fill
     sequence_suffix = str(int(message_num % modulo)).zfill(fill)
 
-    return int(nanosecond_sequence_base + sequence_suffix)
+    return int(microsecond_sequence_base + sequence_suffix)
 
 def serialize(messages, schema, key_names, bookmark_names, max_bytes, max_records):
     '''Produces request bodies for Stitch.
@@ -690,7 +690,7 @@ def collect():
     '''Send usage info to Stitch.'''
 
     try:
-        version = pkg_resources.get_distribution('target-stitch').version
+        version = importlib.metadata.version('target_stitch')
         conn = http.client.HTTPSConnection('collector.stitchdata.com', timeout=10)
         conn.connect()
         params = {
