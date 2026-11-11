@@ -1,5 +1,8 @@
 # Changelog
 
+## 4.0.6
+  * Bump aiohttp from 3.14.3 to 3.14.4 [#129](https://github.com/singer-io/target-stitch/pull/127)
+
 ## 4.0.0
   * Bump aiohttp from 3.14.1 to 3.14.3 [#128](https://github.com/singer-io/target-stitch/pull/128)
 
